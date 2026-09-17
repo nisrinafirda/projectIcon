@@ -46,6 +46,9 @@ Route::middleware('auth')->group(function (): void {
         Route::put('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
         Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
 
+        // Admin Verifikasi Menu & Antrean Tugas
+        Route::get('/verifikasi', [TaskController::class, 'verifikasi'])->name('admin.verifikasi');
+
         // Admin Review (Approve/Reject)
         Route::post('/tasks/{task}/review', [TaskController::class, 'review'])->name('tasks.review');
 

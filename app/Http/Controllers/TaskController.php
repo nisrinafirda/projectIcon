@@ -59,6 +59,14 @@ class TaskController extends Controller
             });
         }
 
+        if ($request->filled('kp')) {
+            $query->where('kp', $request->input('kp'));
+        }
+
+        if ($request->filled('kategori_segmen')) {
+            $query->where('kategori_segmen', $request->input('kategori_segmen'));
+        }
+
         if ($request->filled('deadline_filter')) {
             if ($request->input('deadline_filter') === 'tomorrow') {
                 $query->whereDate('due_date', now()->addDay());
@@ -79,12 +87,59 @@ class TaskController extends Controller
 
         $currentCategoryLabel = $category ? ($categories[$category] ?? $category) : 'Semua Tugas';
 
+        // Specific metrics for SO Open page (matches reference card design)
+        $soMetrics = null;
+        if ($category === 'sso_open') {
+            $baseSoQuery = Task::where('category', 'sso_open');
+            if (! $user->isAdmin()) {
+                $baseSoQuery->where('user_id', $user->id);
+            }
+
+            $totalSo = (clone $baseSoQuery)->count();
+            $doneSo = (clone $baseSoQuery)->where('status', Task::STATUS_APPROVED)->count();
+            $processSo = (clone $baseSoQuery)->whereIn('status', [Task::STATUS_PENDING, Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED])->count();
+            $donePercent = $totalSo > 0 ? round(($doneSo / $totalSo) * 100, 1) : 0;
+            $processPercent = $totalSo > 0 ? round(($processSo / $totalSo) * 100, 1) : 0;
+
+            $kpStats = [];
+            foreach (Task::kpList() as $kpKey => $kpName) {
+                $kpQuery = (clone $baseSoQuery)->where('kp', $kpKey);
+                $kpTotal = (clone $kpQuery)->count();
+                $kpDone = (clone $kpQuery)->where('status', Task::STATUS_APPROVED)->count();
+                $kpProcess = (clone $kpQuery)->whereIn('status', [Task::STATUS_PENDING, Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED])->count();
+                $kpPercent = $kpTotal > 0 ? round(($kpDone / $kpTotal) * 100) : 0;
+
+                $kpStats[$kpKey] = [
+                    'name' => $kpName,
+                    'total' => $kpTotal,
+                    'done' => $kpDone,
+                    'process' => $kpProcess,
+                    'percent' => $kpPercent,
+                ];
+            }
+
+            $soMetrics = [
+                'total' => $totalSo,
+                'done' => $doneSo,
+                'done_percent' => $donePercent,
+                'process' => $processSo,
+                'process_percent' => $processPercent,
+                'kp_stats' => $kpStats,
+            ];
+        }
+
+        $kpList = Task::kpList();
+        $kategoriSegmenList = Task::kategoriSegmenList();
+
         return view('tasks.index', compact(
             'tasks',
             'category',
             'categories',
             'employees',
-            'currentCategoryLabel'
+            'currentCategoryLabel',
+            'soMetrics',
+            'kpList',
+            'kategoriSegmenList'
         ));
     }
 
@@ -94,9 +149,11 @@ class TaskController extends Controller
     public function create(): View
     {
         $categories = Task::categories();
+        $kpList = Task::kpList();
+        $kategoriSegmenList = Task::kategoriSegmenList();
         $employees = User::where('role', 'user')->orderBy('name')->get();
 
-        return view('tasks.create', compact('categories', 'employees'));
+        return view('tasks.create', compact('categories', 'kpList', 'kategoriSegmenList', 'employees'));
     }
 
     /**
@@ -106,6 +163,8 @@ class TaskController extends Controller
     {
         $validated = $request->validate([
             'category' => ['required', 'string', Rule::in(array_keys(Task::categories()))],
+            'kp' => ['nullable', 'string', Rule::in(array_keys(Task::kpList()))],
+            'kategori_segmen' => ['nullable', 'string', Rule::in(array_keys(Task::kategoriSegmenList()))],
             'document_number' => [
                 'required',
                 'string',
@@ -158,9 +217,11 @@ class TaskController extends Controller
     public function edit(Task $task): View
     {
         $categories = Task::categories();
+        $kpList = Task::kpList();
+        $kategoriSegmenList = Task::kategoriSegmenList();
         $employees = User::where('role', 'user')->orderBy('name')->get();
 
-        return view('tasks.edit', compact('task', 'categories', 'employees'));
+        return view('tasks.edit', compact('task', 'categories', 'kpList', 'kategoriSegmenList', 'employees'));
     }
 
     /**
@@ -170,6 +231,8 @@ class TaskController extends Controller
     {
         $validated = $request->validate([
             'category' => ['required', 'string', Rule::in(array_keys(Task::categories()))],
+            'kp' => ['nullable', 'string', Rule::in(array_keys(Task::kpList()))],
+            'kategori_segmen' => ['nullable', 'string', Rule::in(array_keys(Task::kategoriSegmenList()))],
             'document_number' => [
                 'required',
                 'string',
@@ -256,6 +319,38 @@ class TaskController extends Controller
 
         return redirect()->route('tasks.show', $task)
             ->with('success', 'Tugas berhasil diserahkan! Menunggu konfirmasi dan verifikasi dari Administrator.');
+    }
+
+    /**
+     * Admin view for tasks waiting for verification.
+     */
+    public function verifikasi(Request $request): View
+    {
+        $query = Task::with(['user', 'assigner'])
+            ->where('status', Task::STATUS_SUBMITTED);
+
+        if ($request->filled('category')) {
+            $query->where('category', $request->input('category'));
+        }
+
+        if ($request->filled('kp')) {
+            $query->where('kp', $request->input('kp'));
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search): void {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('document_number', 'like', "%{$search}%")
+                    ->orWhere('customer_name', 'like', "%{$search}%");
+            });
+        }
+
+        $pendingTasks = $query->orderBy('updated_at', 'desc')->paginate(15)->withQueryString();
+        $categories = Task::categories();
+        $kpList = Task::kpList();
+
+        return view('tasks.verifikasi', compact('pendingTasks', 'categories', 'kpList'));
     }
 
     /**

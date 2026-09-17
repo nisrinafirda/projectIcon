@@ -8,14 +8,28 @@
             <div class="flex items-start gap-3">
                 <span class="text-2xl">💡</span>
                 <div>
-                    <h3 class="text-base font-bold text-white">Import Ribuan Data Sekaligus Langsung Terhubung ke Karyawan Masing-Masing</h3>
+                    <h3 class="text-base font-bold text-white">Import Ribuan Data Sekaligus — Mendukung File Asli Monitoring PPB SBU & Template ICON</h3>
                     <p class="text-xs text-blue-100/90 mt-1 leading-relaxed">
-                        <strong>Pertanyaan:</strong> <em>"Datanya ada banyak sedangkan per orang ada yang pegang sendiri-sendiri, apakah bisa kita masukkan data awal dan langsung sesuai dengan user yang kita mau?"</em><br>
-                        <strong>Jawaban:</strong> <strong>BISA SEKALI!</strong> Anda cukup menyertakan <u>NIP atau Email Karyawan</u> pada kolom template Excel. Sistem secara otomatis mencocokkan setiap baris tugas ke akun karyawan yang bersangkutan.
+                        <strong>Fitur Pintar:</strong> Anda bisa langsung mengunggah file spreadsheet dari <strong>Project Monitoring PPB 2026 (BAA Open, BAI Open, SO Open, Exception, Contract Expired)</strong> tanpa perlu mengubah susunan kolom! Sistem secara otomatis memetakan kolom (ID PA, Pelanggan, Sales, KP, Harga, Tanggal) dan mendistribusikannya ke karyawan masing-masing.
                     </p>
                 </div>
             </div>
         </div>
+
+        @if($selectedCategory)
+        <div class="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-950 text-xs flex items-center justify-between gap-3 shadow-2xs">
+            <div class="flex items-center gap-2.5">
+                <span class="text-lg">📁</span>
+                <div>
+                    <span class="font-bold text-blue-900">Mode Import Khusus: {{ $selectedCategoryLabel }}</span>
+                    <p class="text-[11px] text-blue-700 mt-0.5">Semua baris tugas yang diimpor akan otomatis masuk ke kategori <strong>{{ $selectedCategoryLabel }}</strong>.</p>
+                </div>
+            </div>
+            <a href="{{ route('tasks.import.view') }}" class="text-xs font-semibold text-blue-600 hover:text-blue-800 underline shrink-0">
+                Pilih Kategori Lain
+            </a>
+        </div>
+        @endif
 
         @if(session('import_errors') && count(session('import_errors')) > 0)
         <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
@@ -33,11 +47,13 @@
             <div>
                 <span class="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">Langkah 1</span>
                 <h3 class="text-base font-bold text-slate-900 mt-1">Unduh Template Excel Resmi (.xlsx)</h3>
-                <p class="text-xs text-slate-500 mt-0.5">Format tabel telah disesuaikan dengan 5 kategori ICON (SSO Open, BAA, BAI, Exception, Kontrak Exp).</p>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    {{ $selectedCategory ? "Template telah disesuaikan khusus untuk kategori {$selectedCategoryLabel} dan daftar nama karyawan aktif." : 'Format tabel telah disesuaikan dengan 5 kategori ICON (SO Open, BAA, BAI, Exception, Kontrak Exp).' }}
+                </p>
             </div>
-            <a href="{{ route('tasks.import.template') }}" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-colors shrink-0">
+            <a href="{{ route('tasks.import.template', $selectedCategory ? ['category' => $selectedCategory] : []) }}" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-colors shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Unduh Template Excel
+                Unduh Template Excel {{ $selectedCategory ? "({$selectedCategoryLabel})" : '' }}
             </a>
         </div>
 
@@ -51,6 +67,27 @@
 
             <form method="POST" action="{{ route('tasks.import.process') }}" enctype="multipart/form-data" class="p-6 space-y-6">
                 @csrf
+
+                <!-- Target Category Selector -->
+                <div>
+                    <label for="target_category" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Target Modul Kategori Tugas
+                    </label>
+                    <div class="relative">
+                        <select id="target_category" name="target_category"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium">
+                            <option value="">-- Deteksi Otomatis dari Kolom Kategori di Excel --</option>
+                            @foreach($categories as $catKey => $catLabel)
+                                <option value="{{ $catKey }}" {{ old('target_category', $selectedCategory) === $catKey ? 'selected' : '' }}>
+                                    📌 Khusus Modul {{ $catLabel }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Jika dipilih (misal <strong>SO Open</strong>), seluruh baris data di file Excel akan otomatis dimasukkan ke modul tersebut tanpa perlu edit kolom kategori lagi.
+                    </p>
+                </div>
 
                 <!-- File Input -->
                 <div>
@@ -105,7 +142,7 @@
                 <!-- Fallback User Assignee -->
                 <div>
                     <label for="default_user_id" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                        Karyawan Default (Jika Kolom PIC di Excel Kosong)
+                        Karyawan Default (Jika Kolom Nama/PIC di Excel Kosong atau Tidak Dikenali)
                     </label>
                     <select id="default_user_id" name="default_user_id"
                         class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -118,7 +155,7 @@
 
                 <div class="pt-4 border-t border-slate-100 flex items-center justify-end">
                     <button type="submit"
-                        class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-500/20 transition-all flex items-center gap-2">
+                        class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 cursor-pointer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                         Mulai Proses Import Data
                     </button>
@@ -128,7 +165,8 @@
 
         <!-- Panduan Kolom Excel -->
         <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6">
-            <h3 class="text-sm font-bold text-slate-900 mb-3">Struktur Kolom Template Excel</h3>
+            <h3 class="text-sm font-bold text-slate-900 mb-1">Struktur Kolom Template Excel</h3>
+            <p class="text-xs text-slate-500 mb-3">1 file Excel dapat berisi berbagai tugas untuk karyawan yang berbeda-beda sekaligus:</p>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-slate-600">
                     <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
@@ -144,30 +182,30 @@
                         <tr>
                             <td class="py-2.5 px-3 font-mono font-bold text-blue-600">A</td>
                             <td class="py-2.5 px-3 font-semibold">Kategori</td>
-                            <td class="py-2.5 px-3 text-rose-600 font-bold">Ya</td>
-                            <td class="py-2.5 px-3 font-mono text-slate-700">baa / bai / sso_open / exception / kontrak_exp</td>
-                            <td class="py-2.5 px-3">Pilih salah satu dari 5 kategori ICON</td>
+                            <td class="py-2.5 px-3 text-amber-600 font-bold">Opsional jika Target Modul dipilih</td>
+                            <td class="py-2.5 px-3 font-mono text-slate-700">sso_open / baa / bai / exception / kontrak_exp</td>
+                            <td class="py-2.5 px-3">Jika Target Modul di form telah dipilih (misal SO Open), kolom ini otomatis mengikuti pilihan tersebut.</td>
                         </tr>
                         <tr>
                             <td class="py-2.5 px-3 font-mono font-bold text-blue-600">B</td>
                             <td class="py-2.5 px-3 font-semibold">Nomor Dokumen</td>
                             <td class="py-2.5 px-3 text-rose-600 font-bold">Ya (Unik)</td>
-                            <td class="py-2.5 px-3 font-mono text-slate-700">BAA-2026-901</td>
-                            <td class="py-2.5 px-3">Identitas unik dokumen (mencegah data dobel)</td>
+                            <td class="py-2.5 px-3 font-mono text-slate-700">SO-2026-101 / BAA-2026-901</td>
+                            <td class="py-2.5 px-3">Identitas unik dokumen per kategori</td>
                         </tr>
                         <tr>
                             <td class="py-2.5 px-3 font-mono font-bold text-blue-600">C</td>
                             <td class="py-2.5 px-3 font-semibold">Judul Tugas</td>
                             <td class="py-2.5 px-3 text-rose-600 font-bold">Ya</td>
-                            <td class="py-2.5 px-3 text-slate-700">BAA Aktivasi Link Fiber Optik</td>
-                            <td class="py-2.5 px-3">Nama atau ringkasan tugas</td>
+                            <td class="py-2.5 px-3 text-slate-700">Aktivasi Penambahan Bandwidth IP Transit</td>
+                            <td class="py-2.5 px-3">Nama atau ringkasan tugas pengerjaan</td>
                         </tr>
                         <tr>
-                            <td class="py-2.5 px-3 font-mono font-bold text-blue-600">D</td>
-                            <td class="py-2.5 px-3 font-semibold">NIP / Email Karyawan</td>
-                            <td class="py-2.5 px-3 text-slate-500 font-semibold">Opsional</td>
-                            <td class="py-2.5 px-3 font-mono text-slate-700">ahmad@icon.co.id / NIP101</td>
-                            <td class="py-2.5 px-3 font-semibold text-blue-600">Otomatis langsung ditugaskan ke karyawan ini!</td>
+                            <td class="py-2.5 px-3 font-mono font-bold text-emerald-600">D</td>
+                            <td class="py-2.5 px-3 font-semibold text-slate-900">Nama / NIP / Email Karyawan PIC</td>
+                            <td class="py-2.5 px-3 text-emerald-600 font-bold">Bisa Nama Langsung!</td>
+                            <td class="py-2.5 px-3 font-semibold text-emerald-700">Siti Rahma / Budi Santoso / ahmad@icon.co.id / NIP101</td>
+                            <td class="py-2.5 px-3 font-medium text-emerald-800 bg-emerald-50/50 rounded">✨ Otomatis dipisah dan dimasukkan ke akun masing-masing karyawan sesuai nama yang tertulis!</td>
                         </tr>
                         <tr>
                             <td class="py-2.5 px-3 font-mono font-bold text-blue-600">E</td>
@@ -200,6 +238,43 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        <!-- Panduan Format File Monitoring SBU SharePoint -->
+        <div class="bg-white rounded-2xl border border-blue-200 shadow-xs p-6 bg-gradient-to-b from-blue-50/30 to-transparent">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-xl">✨</span>
+                <h3 class="text-sm font-bold text-blue-950">Mendukung File Asli "Project Monitoring PPB 2026" (SharePoint SBU)</h3>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+                Tidak perlu memindah atau mengubah format kolom! Sistem otomatis mendeteksi header tabel operasional SBU dan memetakannya langsung:
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div class="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5 shadow-2xs">
+                    <span class="font-bold text-blue-900 block">📊 Pemetaan Otomatis Kolom SBU:</span>
+                    <ul class="space-y-1 text-slate-600 list-disc list-inside">
+                        <li><strong>ID PA / SID / ID Pelanggan</strong> &rarr; Nomor Dokumen (Unik)</li>
+                        <li><strong>NAMA PELANGGAN</strong> &rarr; Pelanggan / Site</li>
+                        <li><strong>LAYANAN PRODUK</strong> &rarr; Jenis Layanan</li>
+                        <li><strong>KP (Surabaya/Malang/dll)</strong> &rarr; Wilayah KP Task</li>
+                        <li><strong>Kategori Customer</strong> &rarr; Segmen (Publik / PLN)</li>
+                        <li><strong>Sales / PIC</strong> &rarr; Otomatis assign ke User ICON</li>
+                    </ul>
+                </div>
+                <div class="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5 shadow-2xs">
+                    <span class="font-bold text-blue-900 block">💼 Data Tambahan yang Dirangkum:</span>
+                    <ul class="space-y-1 text-slate-600 list-disc list-inside">
+                        <li><strong>Harga Lama / Harga Baru / Selisih</strong> &rarr; Dirangkum rapi ke Keterangan / Deskripsi</li>
+                        <li><strong>Kendala / Alasan / Konfirmasi</strong> &rarr; Otomatis digabung ke Deskripsi</li>
+                        <li><strong>Tanggal Aging / Upload</strong> &rarr; Tanggal Mulai</li>
+                        <li><strong>Target Hari / Aktivasi</strong> &rarr; Tanggal Deadline</li>
+                        <li><strong>Status (Done / On Process)</strong> &rarr; Status Tugas</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="text-[11px] text-blue-700 mt-3 italic">
+                Tips: Jika file Excel memiliki banyak sheet (1.1 SO Open, 1.2 SO Open, 2 BAI Open, 3 BAA Open, 4 Exception, 5 Contract Expired), pastikan sheet yang ingin diimpor berada di posisi aktif atau tentukan "Target Modul Kategori Tugas" di formulir atas.
+            </p>
         </div>
     </div>
 </x-layouts.app>

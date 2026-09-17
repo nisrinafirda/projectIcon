@@ -18,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'title',
     'description',
     'customer_name',
+    'kp',
+    'kategori_segmen',
     'service_type',
     'priority',
     'status',
@@ -32,10 +34,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Task extends Model
 {
     /** @use HasFactory<TaskFactory> */
-    /** @use HasFactory<TaskFactory> */
     use HasFactory;
 
     public const CATEGORY_SSO_OPEN = 'sso_open';
+
+    public const CATEGORY_SO_OPEN = 'sso_open';
 
     public const CATEGORY_BAA = 'baa';
 
@@ -54,6 +57,18 @@ class Task extends Model
     public const STATUS_APPROVED = 'approved';
 
     public const STATUS_REJECTED = 'rejected';
+
+    public const KP_SURABAYA = 'surabaya';
+
+    public const KP_MALANG = 'malang';
+
+    public const KP_MADIUN = 'madiun';
+
+    public const KP_JEMBER = 'jember';
+
+    public const SEGMEN_PLN = 'pln';
+
+    public const SEGMEN_PUBLIK = 'publik';
 
     /**
      * Get the attributes that should be cast.
@@ -78,11 +93,39 @@ class Task extends Model
     public static function categories(): array
     {
         return [
-            self::CATEGORY_SSO_OPEN => 'SSO Open',
+            self::CATEGORY_SSO_OPEN => 'SO Open',
             self::CATEGORY_BAA => 'BAA',
             self::CATEGORY_BAI => 'BAI',
             self::CATEGORY_EXCEPTION => 'EXCEPTION',
             self::CATEGORY_KONTRAK_EXP => 'Kontrak Exp',
+        ];
+    }
+
+    /**
+     * List of Kantor Perwakilan (KP).
+     *
+     * @return array<string, string>
+     */
+    public static function kpList(): array
+    {
+        return [
+            self::KP_SURABAYA => 'Surabaya',
+            self::KP_MALANG => 'Malang',
+            self::KP_MADIUN => 'Madiun',
+            self::KP_JEMBER => 'Jember',
+        ];
+    }
+
+    /**
+     * List of Kategori Segmen Pelanggan (PLN vs Publik).
+     *
+     * @return array<string, string>
+     */
+    public static function kategoriSegmenList(): array
+    {
+        return [
+            self::SEGMEN_PLN => 'PLN',
+            self::SEGMEN_PUBLIK => 'Publik',
         ];
     }
 
@@ -108,6 +151,22 @@ class Task extends Model
     public function getCategoryLabelAttribute(): string
     {
         return self::categories()[$this->category] ?? ucfirst($this->category);
+    }
+
+    /**
+     * KP label.
+     */
+    public function getKpLabelAttribute(): string
+    {
+        return self::kpList()[$this->kp] ?? ($this->kp ? ucfirst($this->kp) : '-');
+    }
+
+    /**
+     * Kategori Segmen label.
+     */
+    public function getKategoriSegmenLabelAttribute(): string
+    {
+        return self::kategoriSegmenList()[$this->kategori_segmen] ?? ($this->kategori_segmen ? strtoupper($this->kategori_segmen) : '-');
     }
 
     /**
@@ -170,6 +229,22 @@ class Task extends Model
     public function scopeByCategory(Builder $query, string $category): Builder
     {
         return $query->where('category', $category);
+    }
+
+    /**
+     * Scope query by KP.
+     */
+    public function scopeByKp(Builder $query, string $kp): Builder
+    {
+        return $query->where('kp', $kp);
+    }
+
+    /**
+     * Scope query by kategori segmen.
+     */
+    public function scopeByKategoriSegmen(Builder $query, string $segmen): Builder
+    {
+        return $query->where('kategori_segmen', $segmen);
     }
 
     /**

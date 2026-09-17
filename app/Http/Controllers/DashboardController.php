@@ -97,6 +97,15 @@ class DashboardController extends Controller
             ],
         ];
 
+        // 5b. Chart Data: Kategori (PLN vs Publik)
+        $kategoriChartData = [
+            'labels' => ['PLN', 'Publik'],
+            'data' => [
+                Task::where('kategori_segmen', 'pln')->count(),
+                Task::where('kategori_segmen', 'publik')->count(),
+            ],
+        ];
+
         // 6. Chart Data: Category Breakdown
         $categoryChartData = [
             'labels' => array_values($categories),
@@ -106,6 +115,17 @@ class DashboardController extends Controller
                 Task::byCategory(Task::CATEGORY_BAI)->count(),
                 Task::byCategory(Task::CATEGORY_EXCEPTION)->count(),
                 Task::byCategory(Task::CATEGORY_KONTRAK_EXP)->count(),
+            ],
+        ];
+
+        // 6b. Chart Data: Kantor Perwakilan (KP)
+        $kpChartData = [
+            'labels' => ['Surabaya', 'Malang', 'Madiun', 'Jember'],
+            'data' => [
+                Task::where('kp', 'surabaya')->count(),
+                Task::where('kp', 'malang')->count(),
+                Task::where('kp', 'madiun')->count(),
+                Task::where('kp', 'jember')->count(),
             ],
         ];
 
@@ -120,7 +140,9 @@ class DashboardController extends Controller
             'urgentTasks',
             'pendingReviews',
             'statusChartData',
-            'categoryChartData'
+            'categoryChartData',
+            'kategoriChartData',
+            'kpChartData'
         ));
     }
 

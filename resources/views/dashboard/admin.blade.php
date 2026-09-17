@@ -13,7 +13,7 @@
                     Dashboard Monitoring Keseluruhan Tugas
                 </h2>
                 <p class="mt-1 text-sm text-blue-200/90 max-w-2xl">
-                    Pantau kinerja penugasan karyawan pada 5 kategori (SSO Open, BAA, BAI, Exception, Kontrak Exp), verifikasi tugas masuk, dan cegah data ganda.
+                    Pantau kinerja penugasan karyawan pada 5 kategori (SO Open, BAA, BAI, Exception, Kontrak Exp), verifikasi tugas masuk, dan cegah data ganda.
                 </p>
             </div>
 
@@ -130,94 +130,38 @@
         </div>
     </div>
 
-    <!-- 4. APPROVAL QUEUE (VERIFIKASI ADMIN: TERIMA / TOLAK) -->
-    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-            <div>
-                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <span>📥</span>
-                    Antrean Verifikasi Tugas Masuk (Persetujuan Admin)
-                </h3>
-                <p class="text-xs text-slate-500">Karyawan telah menyerahkan tugas ini. Tinjau catatan dan pilih untuk Menerima atau Menolak.</p>
-            </div>
-            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
-                {{ $submittedTasksCount }} Menunggu Verifikasi
-            </span>
-        </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs text-slate-600">
-                <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
-                    <tr>
-                        <th class="py-3 px-4">Kategori</th>
-                        <th class="py-3 px-4">No. Dokumen</th>
-                        <th class="py-3 px-4">Judul Tugas</th>
-                        <th class="py-3 px-4">Karyawan</th>
-                        <th class="py-3 px-4">Catatan Penyerahan</th>
-                        <th class="py-3 px-4 text-center">Tindakan Admin</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    @forelse($pendingReviews as $rev)
-                    <tr class="hover:bg-slate-50/80 transition-colors">
-                        <td class="py-3.5 px-4 font-semibold">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                                {{ $rev->category_label }}
-                            </span>
-                        </td>
-                        <td class="py-3.5 px-4 font-mono font-medium text-slate-900">{{ $rev->document_number }}</td>
-                        <td class="py-3.5 px-4 font-bold text-slate-900 max-w-xs truncate">{{ $rev->title }}</td>
-                        <td class="py-3.5 px-4 font-medium text-slate-800">
-                            {{ $rev->user ? $rev->user->name : '-' }}
-                        </td>
-                        <td class="py-3.5 px-4 max-w-xs">
-                            <p class="truncate text-slate-700 italic">"{{ $rev->submission_notes ?: 'Tidak ada catatan' }}"</p>
-                        </td>
-                        <td class="py-3.5 px-4 text-center">
-                            <div class="flex items-center justify-center gap-1.5">
-                                <a href="{{ route('tasks.show', $rev) }}" class="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-colors">
-                                    Tinjau & Putuskan &rarr;
-                                </a>
-                            </div>
-                        </td>
-                    </tr>
-                    @empty
-                    <tr>
-                        <td colspan="6" class="py-8 text-center text-slate-400">
-                            ✨ Tidak ada tugas yang menunggu verifikasi saat ini. Semua kiriman telah diproses!
-                        </td>
-                    </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- 5. CHARTS: STATUS DISTRIBUTION & CATEGORY DISTRIBUTION -->
+    <!-- 4. CHARTS: DIAGRAM PER KATEGORI & DIAGRAM PER KP -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Status Donut Chart -->
+        <!-- Diagram Per Kategori (PLN & Publik) -->
         <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col">
             <div class="flex items-center justify-between mb-4">
                 <div>
-                    <h3 class="text-sm font-bold text-slate-900">Distribusi Status Pengerjaan</h3>
-                    <p class="text-xs text-slate-500">Proporsi status tugas seluruh sistem</p>
+                    <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <span>🏷️</span>
+                        Diagram Per Kategori
+                    </h3>
+                    <p class="text-xs text-slate-500">Perbandingan jumlah tugas kategori PLN dan Publik</p>
                 </div>
             </div>
             <div class="flex-1 flex items-center justify-center min-h-[240px]">
-                <canvas id="adminStatusChart" class="max-h-[240px]"></canvas>
+                <canvas id="adminKategoriChart" class="max-h-[240px]"></canvas>
             </div>
         </div>
 
-        <!-- Category Bar Chart -->
+        <!-- Diagram Per KP (Surabaya, Malang, Madiun, Jember) -->
         <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col">
             <div class="flex items-center justify-between mb-4">
                 <div>
-                    <h3 class="text-sm font-bold text-slate-900">Beban Kerja Per Kategori</h3>
-                    <p class="text-xs text-slate-500">Perbandingan jumlah tugas per modul ICON</p>
+                    <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <span>🏢</span>
+                        Diagram Per KP
+                    </h3>
+                    <p class="text-xs text-slate-500">Perbandingan jumlah tugas per Kantor Perwakilan (Surabaya, Malang, Madiun, Jember)</p>
                 </div>
             </div>
             <div class="flex-1 flex items-center justify-center min-h-[240px]">
-                <canvas id="adminCategoryChart" class="max-h-[240px]"></canvas>
+                <canvas id="adminKpChart" class="max-h-[240px]"></canvas>
             </div>
         </div>
     </div>
@@ -225,19 +169,19 @@
     @push('scripts')
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const statusData = @json($statusChartData);
-            const categoryData = @json($categoryChartData);
+            const kategoriData = @json($kategoriChartData);
+            const kpData = @json($kpChartData);
 
-            // 1. Status Chart
-            const ctxStatus = document.getElementById('adminStatusChart');
-            if (ctxStatus && window.Chart) {
-                new window.Chart(ctxStatus, {
+            // 1. Diagram Per Kategori (PLN & Publik)
+            const ctxKategori = document.getElementById('adminKategoriChart');
+            if (ctxKategori && window.Chart) {
+                new window.Chart(ctxKategori, {
                     type: 'doughnut',
                     data: {
-                        labels: statusData.labels,
+                        labels: kategoriData.labels,
                         datasets: [{
-                            data: statusData.data,
-                            backgroundColor: ['#94A3B8', '#3B82F6', '#A855F7', '#10B981', '#F43F5E'],
+                            data: kategoriData.data,
+                            backgroundColor: ['#0284C7', '#10B981'], // PLN (Sky Blue), Publik (Emerald Green)
                             borderWidth: 2,
                             borderColor: '#ffffff',
                         }]
@@ -246,29 +190,28 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
-                            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+                            legend: { position: 'bottom', labels: { boxWidth: 14, font: { size: 11, weight: 'bold' } } }
                         },
                         cutout: '65%'
                     }
                 });
             }
 
-            // 2. Category Chart
-            const ctxCategory = document.getElementById('adminCategoryChart');
-            if (ctxCategory && window.Chart) {
-                new window.Chart(ctxCategory, {
+            // 2. Diagram Per KP (Surabaya, Malang, Madiun, Jember)
+            const ctxKp = document.getElementById('adminKpChart');
+            if (ctxKp && window.Chart) {
+                new window.Chart(ctxKp, {
                     type: 'bar',
                     data: {
-                        labels: categoryData.labels,
+                        labels: kpData.labels,
                         datasets: [{
                             label: 'Jumlah Tugas',
-                            data: categoryData.data,
+                            data: kpData.data,
                             backgroundColor: [
-                                '#06B6D4', // Cyan (SSO Open)
-                                '#F59E0B', // Amber (BAA)
-                                '#10B981', // Emerald (BAI)
-                                '#F43F5E', // Rose (Exception)
-                                '#8B5CF6'  // Purple (Kontrak Exp)
+                                '#3B82F6', // Surabaya (Blue)
+                                '#8B5CF6', // Malang (Purple)
+                                '#F59E0B', // Madiun (Amber)
+                                '#10B981', // Jember (Emerald)
                             ],
                             borderRadius: 8,
                         }]

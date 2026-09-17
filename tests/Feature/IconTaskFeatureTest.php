@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class IconTaskFeatureTest extends TestCase
@@ -50,7 +51,7 @@ class IconTaskFeatureTest extends TestCase
         $dashboardResponse->assertStatus(200);
         $dashboardResponse->assertSee("Halo, {$this->user->name}!");
         $dashboardResponse->assertSee('Total Tugas Anda');
-        $dashboardResponse->assertSee('SSO Open');
+        $dashboardResponse->assertSee('SO Open');
         $dashboardResponse->assertSee('BAA');
         $dashboardResponse->assertSee('BAI');
     }
@@ -184,5 +185,195 @@ class IconTaskFeatureTest extends TestCase
 
         $pdfResponse = $this->actingAs($this->user)->get(route('tasks.export.pdf'));
         $pdfResponse->assertStatus(200);
+    }
+
+    public function test_admin_dashboard_shows_kategori_and_kp_charts_and_no_verifikasi_queue(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('dashboard'));
+        $response->assertStatus(200);
+        $response->assertSee('Diagram Per Kategori');
+        $response->assertSee('Diagram Per KP');
+        $response->assertDontSee('Antrean Verifikasi Tugas Masuk');
+        $response->assertSee('PLN');
+        $response->assertSee('Publik');
+        $response->assertSee('Surabaya');
+        $response->assertSee('Malang');
+    }
+
+    public function test_verifikasi_page_accessible_by_admin(): void
+    {
+        Task::factory()->create([
+            'category' => Task::CATEGORY_EXCEPTION,
+            'user_id' => $this->user->id,
+            'status' => Task::STATUS_SUBMITTED,
+            'title' => 'Tugas Menunggu Verifikasi',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.verifikasi'));
+        $response->assertStatus(200);
+        $response->assertSee('Verifikasi Tugas');
+        $response->assertSee('Tugas Menunggu Verifikasi');
+    }
+
+    public function test_verifikasi_page_forbidden_for_regular_user(): void
+    {
+        $response = $this->actingAs($this->user)->get(route('admin.verifikasi'));
+        $response->assertStatus(403);
+    }
+
+    public function test_tasks_filtered_by_kp_and_kategori_segmen(): void
+    {
+        $task1 = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'user_id' => $this->user->id,
+            'title' => 'Tugas PLN Surabaya Khusus',
+            'kp' => Task::KP_SURABAYA,
+            'kategori_segmen' => Task::SEGMEN_PLN,
+        ]);
+
+        $task2 = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'user_id' => $this->user->id,
+            'title' => 'Tugas Publik Malang Khusus',
+            'kp' => Task::KP_MALANG,
+            'kategori_segmen' => Task::SEGMEN_PUBLIK,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.index', [
+            'kp' => Task::KP_SURABAYA,
+            'kategori_segmen' => Task::SEGMEN_PLN,
+        ]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Tugas PLN Surabaya Khusus');
+        $response->assertDontSee('Tugas Publik Malang Khusus');
+    }
+
+    public function test_so_open_page_shows_custom_metrics_and_kp_breakdown(): void
+    {
+        Task::factory()->create([
+            'category' => Task::CATEGORY_SO_OPEN,
+            'user_id' => $this->user->id,
+            'title' => 'SO Open Task 1',
+            'kp' => Task::KP_SURABAYA,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.category', 'sso_open'));
+        $response->assertStatus(200);
+        $response->assertSee('SO Open');
+        $response->assertSee('Total Proyek SO');
+        $response->assertSee('Total Nilai Baru');
+        $response->assertSee('KP Surabaya');
+        $response->assertSee('KP Malang');
+        $response->assertSee('KP Madiun');
+        $response->assertSee('KP Jember');
+    }
+
+    public function test_admin_can_access_create_and_edit_task_pages(): void
+    {
+        $createResponse = $this->actingAs($this->admin)->get(route('tasks.create'));
+        $createResponse->assertStatus(200);
+        $createResponse->assertSee('Beri Tugas Baru');
+        $createResponse->assertSee('Kantor Perwakilan (KP)');
+
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'user_id' => $this->user->id,
+            'kp' => Task::KP_MALANG,
+            'kategori_segmen' => Task::SEGMEN_PUBLIK,
+        ]);
+
+        $editResponse = $this->actingAs($this->admin)->get(route('tasks.edit', $task));
+        $editResponse->assertStatus(200);
+        $editResponse->assertSee('Edit Tugas');
+        $editResponse->assertSee('Kantor Perwakilan (KP)');
+    }
+
+    public function test_import_tasks_automatically_assigns_per_employee_name(): void
+    {
+        $employee1 = User::factory()->create([
+            'name' => 'Siti Rahma',
+            'email' => 'siti.rahma@icon.co.id',
+            'nip' => 'NIP-SITI-01',
+            'role' => 'user',
+        ]);
+
+        $employee2 = User::factory()->create([
+            'name' => 'Budi Santoso',
+            'email' => 'budi.santoso@icon.co.id',
+            'nip' => 'NIP-BUDI-02',
+            'role' => 'user',
+        ]);
+
+        $csv = "Kategori,Nomor Dokumen,Judul Tugas,PIC,Pelanggan,Layanan,Prioritas,Mulai,Deadline,Keterangan\n";
+        $csv .= "sso_open,SO-NAME-101,Tugas Khusus Siti,Siti Rahma,PT ABC,Metronet,high,2026-09-17,2026-09-20,Catatan 1\n";
+        $csv .= "sso_open,SO-NAME-102,Tugas Khusus Budi,Budi Santoso,PT XYZ,IP Transit,urgent,2026-09-17,2026-09-20,Catatan 2\n";
+
+        $file = UploadedFile::fake()->createWithContent('import_per_name.csv', $csv);
+
+        $response = $this->actingAs($this->admin)->post(route('tasks.import.process'), [
+            'file' => $file,
+            'duplicate_action' => 'skip',
+            'target_category' => 'sso_open',
+        ]);
+
+        $response->assertRedirect(route('tasks.category', 'sso_open'));
+        $response->assertSessionHas('success');
+
+        $task1 = Task::where('document_number', 'SO-NAME-101')->first();
+        $this->assertNotNull($task1);
+        $this->assertEquals($employee1->id, $task1->user_id);
+        $this->assertEquals('sso_open', $task1->category);
+
+        $task2 = Task::where('document_number', 'SO-NAME-102')->first();
+        $this->assertNotNull($task2);
+        $this->assertEquals($employee2->id, $task2->user_id);
+        $this->assertEquals('sso_open', $task2->category);
+    }
+
+    public function test_category_page_has_direct_import_link_and_import_view_loads(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('tasks.category', 'sso_open'));
+        $response->assertStatus(200);
+        $response->assertSee(route('tasks.import.view', ['category' => 'sso_open']));
+        $response->assertSee('Import SO Open');
+
+        $importViewResponse = $this->actingAs($this->admin)->get(route('tasks.import.view', ['category' => 'sso_open']));
+        $importViewResponse->assertStatus(200);
+        $importViewResponse->assertSee('Mode Import Khusus: SO Open');
+        $importViewResponse->assertSee('📌 Khusus Modul SO Open');
+    }
+
+    public function test_import_sbu_monitoring_sheet_format_automatically_maps_fields(): void
+    {
+        $salesUser = User::factory()->create([
+            'name' => 'Yeni Primahapsari',
+            'email' => 'yeni@icon.co.id',
+            'role' => 'user',
+        ]);
+
+        $csv = "ID PA,NAMA PELANGGAN,LAYANAN PRODUK,HARGA LAMA,HARGA BARU,SELISIH,Kategori Customer,KP,Sales,Tanggal Upload BAI,Target,Status\n";
+        $csv .= "A142204001215,UNIVERSITAS MUHAMMADIYAH MALANG,PRODUK DIGITAL - EV CHARGER,0,5795000,5795000,PUBLIK,Malang,YENI PRIMAHAPSARI,2026-08-21,7,On Process\n";
+
+        $file = UploadedFile::fake()->createWithContent('sbu_baa_open.csv', $csv);
+
+        $response = $this->actingAs($this->admin)->post(route('tasks.import.process'), [
+            'file' => $file,
+            'duplicate_action' => 'skip',
+            'target_category' => 'baa',
+        ]);
+
+        $response->assertRedirect(route('tasks.category', 'baa'));
+        $response->assertSessionHas('success');
+
+        $task = Task::where('document_number', 'A142204001215')->first();
+        $this->assertNotNull($task);
+        $this->assertEquals('baa', $task->category);
+        $this->assertEquals($salesUser->id, $task->user_id);
+        $this->assertEquals('UNIVERSITAS MUHAMMADIYAH MALANG', $task->customer_name);
+        $this->assertEquals('malang', $task->kp);
+        $this->assertEquals('publik', $task->kategori_segmen);
+        $this->assertEquals('in_progress', $task->status);
+        $this->assertStringContainsString('Harga Baru: Rp 5.795.000', $task->description);
     }
 }
