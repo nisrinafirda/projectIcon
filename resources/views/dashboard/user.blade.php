@@ -146,7 +146,7 @@
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <!-- SSO Open Card -->
+                <!-- SO Open Card -->
                 <a href="{{ route('tasks.category', 'sso_open') }}" class="group p-4 rounded-xl border border-cyan-200/80 bg-gradient-to-br from-cyan-50/50 to-white hover:border-cyan-400 hover:shadow-md transition-all">
                     <div class="flex items-center justify-between">
                         <span class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-600 flex items-center justify-center font-bold text-sm">⚡</span>
@@ -154,7 +154,7 @@
                             {{ $userCategories['sso_open']['total'] }} Tugas
                         </span>
                     </div>
-                    <h4 class="mt-2 text-sm font-bold text-slate-900 group-hover:text-cyan-700 transition-colors">SSO Open</h4>
+                    <h4 class="mt-2 text-sm font-bold text-slate-900 group-hover:text-cyan-700 transition-colors">SO Open</h4>
                     <div class="mt-2 pt-2 border-t border-cyan-100 flex items-center justify-between text-xs text-slate-500">
                         <span>Belum: <strong class="text-amber-600">{{ $userCategories['sso_open']['unfinished'] }}</strong></span>
                         <span>Selesai: <strong class="text-emerald-600">{{ $userCategories['sso_open']['completed'] }}</strong></span>

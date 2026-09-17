@@ -87,6 +87,38 @@
                     </div>
                 </div>
 
+                <!-- KP & Kategori Segmen -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                        <label for="kp" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Kantor Perwakilan (KP)
+                        </label>
+                        <select id="kp" name="kp"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">-- Pilih Kantor Perwakilan --</option>
+                            @foreach($kpList as $key => $label)
+                                <option value="{{ $key }}" {{ old('kp', $task->kp) === $key ? 'selected' : '' }}>
+                                    KP {{ $label }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="kategori_segmen" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Kategori Segmen Pelanggan
+                        </label>
+                        <select id="kategori_segmen" name="kategori_segmen"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            @foreach($kategoriSegmenList as $key => $label)
+                                <option value="{{ $key }}" {{ old('kategori_segmen', $task->kategori_segmen) === $key ? 'selected' : '' }}>
+                                    {{ $label }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
                     <div>
                         <label for="priority" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

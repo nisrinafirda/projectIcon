@@ -53,6 +53,18 @@
                             {{ $task->priority === 'low' ? 'bg-slate-100 text-slate-600' : '' }}">
                             Prioritas: {{ $task->priority }}
                         </span>
+
+                        @if($task->kp)
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            🏢 KP {{ $task->kp_label }}
+                        </span>
+                        @endif
+
+                        @if($task->kategori_segmen)
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold {{ $task->kategori_segmen === 'pln' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700' }}">
+                            🏷️ {{ $task->kategori_segmen_label }}
+                        </span>
+                        @endif
                     </div>
 
                     <h1 class="text-xl sm:text-2xl font-black text-slate-900 leading-tight">

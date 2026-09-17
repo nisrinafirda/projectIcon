@@ -48,10 +48,32 @@
                         <svg class="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                         Dashboard
                     </a>
+                    @if(auth()->user()->isAdmin())
+                    @php
+                        $pendingVerifCount = \App\Models\Task::where('status', \App\Models\Task::STATUS_SUBMITTED)->count();
+                    @endphp
+                    <a href="{{ route('admin.verifikasi') }}" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('admin.verifikasi') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 opacity-80 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span>Verifikasi</span>
+                        </div>
+                        @if($pendingVerifCount > 0)
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 font-bold border border-purple-400/30">
+                            {{ $pendingVerifCount }}
+                        </span>
+                        @endif
+                    </a>
+                    @endif
                     <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('tasks.index') && !request()->route('category') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <svg class="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                         Semua Tugas
                     </a>
+                    @if(auth()->user()->isAdmin())
+                    <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('admin.users.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        Kelola Karyawan
+                    </a>
+                    @endif
                 </nav>
             </div>
 
@@ -62,11 +84,11 @@
                     <span class="text-[10px] bg-blue-900/80 text-blue-300 px-1.5 py-0.5 rounded font-bold">5 FITUR</span>
                 </div>
                 <nav class="space-y-1">
-                    <!-- SSO Open -->
+                    <!-- SO Open -->
                     <a href="{{ route('tasks.category', 'sso_open') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/sso_open') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-                            <span>SSO Open</span>
+                            <span>SO Open</span>
                         </div>
                         <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
                             {{ \App\Models\Task::where('category', 'sso_open')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
@@ -132,10 +154,6 @@
                         <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                         Import Data & Excel
                     </a>
-                    <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('admin.users.*') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                        <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                        Kelola Karyawan
-                    </a>
                 </nav>
             </div>
             @endif
@@ -144,13 +162,13 @@
             <div>
                 <p class="px-3 text-[11px] font-semibold text-blue-400/80 uppercase tracking-wider mb-2">Laporan & Ekspor</p>
                 <div class="grid grid-cols-2 gap-2 px-1">
-                    <a href="{{ route('tasks.export.excel') }}" class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900/40 hover:bg-emerald-600/30 text-emerald-300 text-xs font-semibold border border-emerald-500/20 transition-all">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                        Excel
+                    <a href="{{ route('tasks.export.excel') }}" class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 text-xs font-semibold border border-emerald-500/30 transition-all shadow-xs">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        <span>Excel</span>
                     </a>
-                    <a href="{{ route('tasks.export.pdf') }}" class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900/40 hover:bg-rose-600/30 text-rose-300 text-xs font-semibold border border-rose-500/20 transition-all">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                        PDF
+                    <a href="{{ route('tasks.export.pdf') }}" class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 text-xs font-semibold border border-rose-500/30 transition-all shadow-xs">
+                        <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        <span>PDF</span>
                     </a>
                 </div>
             </div>

@@ -118,6 +118,44 @@
                     </div>
                 </div>
 
+                <!-- 3b. Kantor Perwakilan (KP) & Kategori Segmen -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                        <label for="kp" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Kantor Perwakilan (KP)
+                        </label>
+                        <select id="kp" name="kp"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                            <option value="">-- Pilih Kantor Perwakilan --</option>
+                            @foreach($kpList as $key => $label)
+                                <option value="{{ $key }}" {{ old('kp') === $key ? 'selected' : '' }}>
+                                    KP {{ $label }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('kp')
+                            <p class="mt-1 text-xs text-rose-500">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label for="kategori_segmen" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Kategori Segmen Pelanggan
+                        </label>
+                        <select id="kategori_segmen" name="kategori_segmen"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                            @foreach($kategoriSegmenList as $key => $label)
+                                <option value="{{ $key }}" {{ old('kategori_segmen', 'publik') === $key ? 'selected' : '' }}>
+                                    {{ $label }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('kategori_segmen')
+                            <p class="mt-1 text-xs text-rose-500">{{ $message }}</p>
+                        @enderror
+                    </div>
+                </div>
+
                 <!-- 4. Prioritas & Tanggal Batas Waktu (Deadline) -->
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
                     <div>
