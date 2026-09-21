@@ -252,7 +252,7 @@ class SbuSheetMapper
         $lower = strtolower(trim($value));
 
         if ($lower === '') {
-            return Task::STATUS_PENDING;
+            return Task::STATUS_IN_PROGRESS;
         }
 
         return match (true) {
@@ -262,7 +262,7 @@ class SbuSheetMapper
             str_contains($lower, 'deaktivasi') => Task::STATUS_APPROVED,
             str_contains($lower, 'pelanggan') => Task::STATUS_IN_PROGRESS,
             str_contains($lower, 'proses') => Task::STATUS_IN_PROGRESS,
-            default => Task::STATUS_PENDING,
+            default => Task::STATUS_IN_PROGRESS,
         };
     }
 

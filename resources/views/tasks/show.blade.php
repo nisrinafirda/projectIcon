@@ -153,6 +153,12 @@
                         @endif
                     </p>
                     @endif
+                    @if($task->comments)
+                    <div class="mt-2 pt-2 border-t border-slate-100">
+                        <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Komentar:</p>
+                        <p class="text-xs text-rose-700 bg-rose-50 p-2 rounded-lg border border-rose-100">{{ $task->comments }}</p>
+                    </div>
+                    @endif
                 </div>
             </div>
 
@@ -212,7 +218,7 @@
         <!-- WORKFLOW ACTIONS -->
 
         <!-- 1. ADMIN ACTIONS: APPROVE OR REJECT (IF USER SUBMITTED) -->
-        @if(auth()->user()->isAdmin())
+        @if(auth()->user()->isAdmin() && $task->status !== 'approved')
         <div class="bg-white rounded-2xl border-2 border-blue-600/30 shadow-md p-6">
             <div class="flex items-center gap-2 mb-4">
                 <span class="p-1 rounded-lg bg-blue-100 text-blue-700 font-bold">⚡</span>
@@ -275,6 +281,21 @@
 
                 <form method="POST" action="{{ route('tasks.submit', $task) }}" enctype="multipart/form-data" class="space-y-4">
                     @csrf
+
+                    <div class="p-4 rounded-xl {{ $task->is_overdue ? 'bg-rose-50 border border-rose-200' : 'bg-slate-50 border border-slate-200' }}">
+                        <label for="comments" class="block text-xs font-bold {{ $task->is_overdue ? 'text-rose-800' : 'text-slate-700' }} uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                            @if($task->is_overdue)
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            @endif
+                            Komentar {{ $task->is_overdue ? '(Wajib - Terlambat)' : '(Opsional)' }}
+                        </label>
+                        @if($task->is_overdue)
+                        <p class="text-[11px] text-rose-600 mb-2">Tugas ini telah melewati batas waktu ({{ $task->due_date->format('d/m/Y') }}). Silakan berikan alasan keterlambatan.</p>
+                        @endif
+                        <textarea id="comments" name="comments" rows="2" {{ $task->is_overdue ? 'required' : '' }}
+                            placeholder="{{ $task->is_overdue ? 'Tuliskan alasan mengapa tugas ini terlambat...' : 'Tambahkan komentar opsional...' }}"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-white border {{ $task->is_overdue ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-300 focus:ring-blue-500' }} text-slate-900 text-sm focus:outline-none focus:ring-2">{{ old('comments') }}</textarea>
+                    </div>
 
                     <div>
                         <label for="submission_notes" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

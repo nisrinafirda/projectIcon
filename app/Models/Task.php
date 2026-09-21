@@ -30,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'submission_attachment',
     'admin_notes',
     'reviewed_at',
+    'comments',
 ])]
 class Task extends Model
 {
@@ -137,7 +138,6 @@ class Task extends Model
     public static function statuses(): array
     {
         return [
-            self::STATUS_PENDING => 'Menunggu Dikerjakan',
             self::STATUS_IN_PROGRESS => 'Sedang Dikerjakan',
             self::STATUS_SUBMITTED => 'Menunggu Verifikasi Admin',
             self::STATUS_APPROVED => 'Selesai (Disetujui)',
@@ -174,6 +174,10 @@ class Task extends Model
      */
     public function getStatusLabelAttribute(): string
     {
+        if ($this->status === self::STATUS_PENDING) {
+            return self::statuses()[self::STATUS_IN_PROGRESS];
+        }
+
         return self::statuses()[$this->status] ?? ucfirst($this->status);
     }
 

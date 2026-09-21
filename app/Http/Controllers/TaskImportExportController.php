@@ -268,7 +268,7 @@ class TaskImportExportController extends Controller
                 $description = trim($row[9] ?? '');
                 $kp = null;
                 $kategoriSegmen = Task::SEGMEN_PUBLIK;
-                $status = Task::STATUS_PENDING;
+                $status = Task::STATUS_IN_PROGRESS;
 
                 // Skip completely empty rows
                 if (! $docNumber && ! $title && ! $rawCategory && ! $userIdentifier) {

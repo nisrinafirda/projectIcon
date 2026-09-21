@@ -114,4 +114,8 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    'admin_password' => env('ADMIN_PASSWORD', 'admin123'),
+
+    'user_demo_password' => env('USER_DEMO_PASSWORD', 'user123'),
+
 ];

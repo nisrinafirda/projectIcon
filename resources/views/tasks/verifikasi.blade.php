@@ -86,11 +86,11 @@
                     <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                         <tr>
                             <th class="py-3.5 px-4">Kategori & KP</th>
-                            <th class="py-3.5 px-4">No. Dokumen</th>
+                            <th class="py-3.5 px-4">ID PA</th>
                             <th class="py-3.5 px-4">Judul & Pelanggan</th>
                             <th class="py-3.5 px-4">Karyawan PIC</th>
-                            <th class="py-3.5 px-4">Catatan Penyerahan</th>
-                            <th class="py-3.5 px-4">Tanggal Serah</th>
+                            <th class="py-3.5 px-4">Deadline</th>
+                            <th class="py-3.5 px-4">Komentar / Catatan</th>
                             <th class="py-3.5 px-4 text-center">Tindakan Admin</th>
                         </tr>
                     </thead>
@@ -132,24 +132,43 @@
                                     <span class="text-slate-400">-</span>
                                 @endif
                             </td>
+                            <td class="py-3.5 px-4">
+                                <span class="font-bold {{ $task->is_overdue ? 'text-rose-600' : ($task->is_due_soon ? 'text-amber-600' : 'text-slate-700') }}">
+                                    {{ $task->due_date ? $task->due_date->format('d/m/Y') : '-' }}
+                                </span>
+                                @if($task->is_due_soon)
+                                    <span class="block text-[10px] font-bold text-amber-600">Besok / Segera</span>
+                                @elseif($task->is_overdue)
+                                    <span class="block text-[10px] font-bold text-rose-600">Terlambat</span>
+                                @endif
+                            </td>
                             <td class="py-3.5 px-4 max-w-xs">
-                                <p class="text-slate-700 italic truncate" title="{{ $task->submission_notes }}">
-                                    "{{ $task->submission_notes ?: 'Tidak ada catatan' }}"
+                                <p class="text-slate-700 italic text-[11px] truncate" title="{{ $task->comments ?: 'Tidak ada komentar' }}">
+                                    Komentar: "{{ $task->comments ?: '-' }}"
+                                </p>
+                                <p class="text-slate-700 italic text-[11px] truncate mt-1" title="{{ $task->submission_notes ?: 'Tidak ada catatan' }}">
+                                    Catatan: "{{ $task->submission_notes ?: '-' }}"
                                 </p>
                                 @if($task->submission_attachment)
                                 <a href="{{ asset('storage/' . $task->submission_attachment) }}" target="_blank" class="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline mt-1 font-medium">
                                     📎 Lampiran Dokumen
                                 </a>
                                 @endif
-                            </td>
-                            <td class="py-3.5 px-4 text-slate-500 text-[11px]">
-                                {{ $task->completed_at ? $task->completed_at->translatedFormat('d M Y, H:i') : ($task->updated_at ? $task->updated_at->translatedFormat('d M Y, H:i') : '-') }}
+                                <p class="text-slate-400 text-[10px] mt-1">Diserahkan: {{ $task->completed_at ? $task->completed_at->translatedFormat('d M Y, H:i') : '-' }}</p>
                             </td>
                             <td class="py-3.5 px-4 text-center">
-                                <a href="{{ route('tasks.show', $task) }}" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs hover:shadow transition-all group">
-                                    <span>Tinjau</span>
-                                    <svg class="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path></svg>
-                                </a>
+                                <div class="flex flex-col items-center gap-2">
+                                    <form method="POST" action="{{ route('tasks.toggle-complete', $task) }}" class="inline-block">
+                                        @csrf
+                                        <input type="hidden" name="admin_notes" value="Disetujui cepat (Quick Approve) dari halaman verifikasi.">
+                                        <label class="relative inline-flex items-center justify-center cursor-pointer p-1 rounded-lg hover:bg-slate-100 transition-colors" title="Setujui Tugas ini (Quick Approve)">
+                                            <input type="checkbox" name="completed" value="1" onchange="this.form.submit()" class="w-5 h-5 text-emerald-600 bg-white border-2 border-slate-300 rounded-md focus:ring-emerald-500 focus:ring-2 cursor-pointer transition-all">
+                                        </label>
+                                    </form>
+                                    <a href="{{ route('tasks.show', $task) }}" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-[10px] shadow-xs transition-all w-full">
+                                        <span>Tinjau Detail</span>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         @empty

@@ -87,10 +87,9 @@ class DashboardController extends Controller
 
         // 5. Chart Data: Status Distribution
         $statusChartData = [
-            'labels' => ['Menunggu', 'Sedang Dikerjakan', 'Menunggu Review', 'Selesai', 'Revisi'],
+            'labels' => ['Sedang Dikerjakan', 'Menunggu Review', 'Selesai', 'Revisi'],
             'data' => [
-                Task::where('status', Task::STATUS_PENDING)->count(),
-                Task::where('status', Task::STATUS_IN_PROGRESS)->count(),
+                Task::whereIn('status', [Task::STATUS_PENDING, Task::STATUS_IN_PROGRESS])->count(),
                 $submittedTasksCount,
                 $completedTasksCount,
                 $rejectedTasksCount,
@@ -196,10 +195,9 @@ class DashboardController extends Controller
 
         // Status Chart Data for this user
         $statusChartData = [
-            'labels' => ['Menunggu', 'Sedang Dikerjakan', 'Menunggu Review', 'Selesai', 'Revisi'],
+            'labels' => ['Sedang Dikerjakan', 'Menunggu Review', 'Selesai', 'Revisi'],
             'data' => [
-                $pendingCount,
-                $inProgressCount,
+                $pendingCount + $inProgressCount,
                 $submittedCount,
                 $completedCount,
                 $rejectedCount,

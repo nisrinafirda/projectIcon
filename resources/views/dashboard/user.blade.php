@@ -83,7 +83,7 @@
             </div>
             <p class="text-3xl font-extrabold text-amber-600 mt-2">{{ $unfinishedCount }}</p>
             <div class="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                <span>{{ $pendingCount }} Menunggu</span> • <span>{{ $inProgressCount }} Sedang Kerja</span>
+                <span>{{ $unfinishedCount }} Tugas Aktif Sedang Dikerjakan</span>
             </div>
         </div>
 
@@ -257,12 +257,12 @@
                 <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                     <tr>
                         <th class="py-3 px-4">Kategori</th>
-                        <th class="py-3 px-4">No. Dokumen</th>
-                        <th class="py-3 px-4">Judul Tugas</th>
+                        <th class="py-3 px-4">ID PA</th>
+                        <th class="py-3 px-4">Layanan</th>
                         <th class="py-3 px-4">Pelanggan / Site</th>
                         <th class="py-3 px-4">Status</th>
                         <th class="py-3 px-4">Deadline</th>
-                        <th class="py-3 px-4 text-right">Aksi</th>
+                        <th class="py-3 px-4 text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -279,12 +279,15 @@
                             </span>
                         </td>
                         <td class="py-3.5 px-4 font-mono font-medium text-slate-900">{{ $task->document_number }}</td>
-                        <td class="py-3.5 px-4 font-semibold text-slate-900 max-w-xs truncate">{{ $task->title }}</td>
+                        <td class="py-3.5 px-4 font-semibold text-slate-900 max-w-xs truncate">
+                            <a href="{{ route('tasks.show', $task) }}" class="hover:text-blue-600">
+                                {{ $task->service_type ?: $task->title }}
+                            </a>
+                        </td>
                         <td class="py-3.5 px-4 text-slate-600">{{ $task->customer_name ?: '-' }}</td>
                         <td class="py-3.5 px-4">
-                            <span class="px-2 py-1 rounded-full text-[10px] font-bold
-                                {{ $task->status === 'pending' ? 'bg-slate-100 text-slate-700' : '' }}
-                                {{ $task->status === 'in_progress' ? 'bg-blue-100 text-blue-700' : '' }}
+                            <span id="user-status-badge-{{ $task->id }}" class="px-2 py-1 rounded-full text-[10px] font-bold
+                                {{ in_array($task->status, ['pending', 'in_progress']) ? 'bg-blue-100 text-blue-700' : '' }}
                                 {{ $task->status === 'submitted' ? 'bg-purple-100 text-purple-700' : '' }}
                                 {{ $task->status === 'approved' ? 'bg-emerald-100 text-emerald-700' : '' }}
                                 {{ $task->status === 'rejected' ? 'bg-rose-100 text-rose-700' : '' }}">
@@ -299,10 +302,22 @@
                                 <span class="block text-[10px] text-amber-600 font-semibold">Besok / Segera!</span>
                             @endif
                         </td>
-                        <td class="py-3.5 px-4 text-right">
-                            <a href="{{ route('tasks.show', $task) }}" class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white font-semibold text-xs transition-colors">
-                                Kerjakan &rarr;
-                            </a>
+                        <td class="py-3.5 px-4 text-center">
+                            <form method="POST" action="{{ route('tasks.toggle-complete', $task) }}" class="inline-flex items-center justify-center">
+                                @csrf
+                                <label class="relative inline-flex items-center justify-center cursor-pointer p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                                    title="{{ $task->status === 'approved' ? 'Tugas Selesai (Klik untuk batalkan)' : 'Klik untuk menandai tugas selesai' }}">
+                                    <input type="checkbox"
+                                        name="completed"
+                                        value="1"
+                                        {{ $task->status === 'approved' ? 'checked' : '' }}
+                                        onchange="handleUserDashboardToggle(this, {{ $task->id }}, '{{ route('tasks.toggle-complete', $task) }}')"
+                                        class="w-5 h-5 text-emerald-600 bg-white border-2 border-slate-300 rounded-md focus:ring-emerald-500 focus:ring-2 cursor-pointer transition-all">
+                                    <noscript>
+                                        <button type="submit" class="ml-1 text-[10px] text-blue-600 underline">Simpan</button>
+                                    </noscript>
+                                </label>
+                            </form>
                         </td>
                     </tr>
                     @empty
@@ -330,7 +345,6 @@
                         datasets: [{
                             data: chartData.data,
                             backgroundColor: [
-                                '#94A3B8', // Menunggu (slate-400)
                                 '#3B82F6', // Sedang Dikerjakan (blue-500)
                                 '#A855F7', // Menunggu Review (purple-500)
                                 '#10B981', // Selesai (emerald-500)
@@ -357,6 +371,52 @@
                 });
             }
         });
+
+        function handleUserDashboardToggle(checkbox, taskId, url) {
+            const isChecked = checkbox.checked;
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                          checkbox.form.querySelector('input[name="_token"]')?.value;
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': token,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({})
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    const badge = document.getElementById('user-status-badge-' + taskId);
+                    if (badge) {
+                        if (data.is_completed) {
+                            badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700';
+                            badge.textContent = 'Selesai (Disetujui)';
+                            checkbox.parentElement.title = 'Tugas Selesai (Klik untuk batalkan)';
+                        } else {
+                            badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700';
+                            badge.textContent = 'Sedang Dikerjakan';
+                            checkbox.parentElement.title = 'Klik untuk menandai tugas selesai';
+                        }
+                    }
+                } else {
+                    checkbox.checked = !isChecked;
+                    alert(data.message || 'Gagal memperbarui status tugas.');
+                }
+            })
+            .catch(error => {
+                console.error('Error updating task status:', error);
+                checkbox.form.submit();
+            });
+        }
     </script>
     @endpush
 </x-layouts.app>

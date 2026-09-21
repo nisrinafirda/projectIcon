@@ -37,6 +37,8 @@ Route::middleware('auth')->group(function (): void {
     // Task workflow for employees
     Route::post('/tasks/{task}/start', [TaskController::class, 'startWork'])->name('tasks.start');
     Route::post('/tasks/{task}/submit', [TaskController::class, 'submit'])->name('tasks.submit');
+    Route::post('/tasks/{task}/toggle-complete', [TaskController::class, 'toggleComplete'])->name('tasks.toggle-complete');
+    Route::post('/tasks/{task}/comment', [TaskController::class, 'saveComment'])->name('tasks.save-comment');
 
     // Admin-only Task Management & Imports
     Route::middleware('admin')->group(function (): void {

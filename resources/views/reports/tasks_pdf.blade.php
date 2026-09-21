@@ -122,8 +122,8 @@
             <tr>
                 <th style="width: 25px; text-align: center;">No</th>
                 <th style="width: 65px;">Kategori</th>
-                <th style="width: 90px;">No Dokumen</th>
-                <th>Judul Tugas & Layanan</th>
+                <th style="width: 90px;">ID PA</th>
+                <th>Layanan</th>
                 <th style="width: 100px;">Karyawan PIC</th>
                 <th style="width: 55px;">Prioritas</th>
                 <th style="width: 90px;">Status</th>
@@ -146,10 +146,10 @@
                 </td>
                 <td style="font-family: monospace; font-weight: bold;">{{ $task->document_number }}</td>
                 <td>
-                    <strong>{{ $task->title }}</strong>
-                    @if($task->customer_name || $task->service_type)
+                    <strong>{{ $task->service_type ?: $task->title }}</strong>
+                    @if($task->customer_name)
                         <div style="font-size: 8px; color: #64748b; margin-top: 2px;">
-                            {{ $task->customer_name }} {{ $task->service_type ? '• '.$task->service_type : '' }}
+                            🏢 {{ $task->customer_name }}
                         </div>
                     @endif
                 </td>

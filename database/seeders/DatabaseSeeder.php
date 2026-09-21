@@ -18,14 +18,13 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-        // 1. Create Admin
-        $admin = User::firstOrCreate(
-            ['email' => 'admin@icon.co.id'],
+        // 1. Create Admin via updateOrCreate with password from .env/config
+        $admin = User::updateOrCreate(
+            ['email' => 'admin@gmail.com'],
             [
                 'nip' => 'ADM001',
                 'name' => 'Admin ICON',
-                'password' => Hash::make('password'),
+                'password' => Hash::make(config('auth.admin_password', env('ADMIN_PASSWORD', 'admin123'))),
                 'role' => 'admin',
                 'department' => 'Operasional Pusat',
                 'phone' => '081234567890',
@@ -33,17 +32,13 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        User::firstOrCreate(
-            ['email' => 'test@example.com'],
-            ['name' => 'Test User', 'password' => Hash::make('password')]
-        );
-        // 2. Create Regular Users (Karyawan)
-        $user1 = User::firstOrCreate(
-            ['email' => 'ahmad@icon.co.id'],
+        // 2. Create Regular User (Karyawan) via updateOrCreate with password from .env/config
+        $employee = User::updateOrCreate(
+            ['email' => 'karyawan@gmail.com'],
             [
                 'nip' => 'NIP101',
-                'name' => 'Ahmad Pratama',
-                'password' => Hash::make('password'),
+                'name' => 'Karyawan ICON',
+                'password' => Hash::make(config('auth.user_demo_password', env('USER_DEMO_PASSWORD', 'user123'))),
                 'role' => 'user',
                 'department' => 'Service Delivery',
                 'phone' => '081298765432',
@@ -51,31 +46,14 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        $user2 = User::firstOrCreate(
-            ['email' => 'siti@icon.co.id'],
-            [
-                'nip' => 'NIP102',
-                'name' => 'Siti Rahma',
-                'password' => Hash::make('password'),
-                'role' => 'user',
-                'department' => 'Provisioning & BAA/BAI',
-                'phone' => '081345678901',
-                'email_verified_at' => now(),
-            ]
-        );
-
-        $user3 = User::firstOrCreate(
-            ['email' => 'budi@icon.co.id'],
-            [
-                'nip' => 'NIP103',
-                'name' => 'Budi Santoso',
-                'password' => Hash::make('password'),
-                'role' => 'user',
-                'department' => 'Network Operation Center',
-                'phone' => '081456789012',
-                'email_verified_at' => now(),
-            ]
-        );
+        // 3. Remove obsolete dummy accounts if they exist
+        User::whereIn('email', [
+            'admin@icon.co.id',
+            'test@example.com',
+            'ahmad@icon.co.id',
+            'siti@icon.co.id',
+            'budi@icon.co.id',
+        ])->delete();
 
         $tomorrow = Carbon::tomorrow();
         $inTwoDays = Carbon::today()->addDays(2);
@@ -87,7 +65,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAA, 'document_number' => 'BAA-2026-001'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Penyelesaian Dokumen BAA PT Telco Mandiri',
                 'description' => 'Verifikasi kelengkapan tanda tangan berita acara aktivasi link 1Gbps',
@@ -96,7 +74,7 @@ class DatabaseSeeder extends Seeder
                 'kategori_segmen' => Task::SEGMEN_PUBLIK,
                 'service_type' => 'Metronet 1Gbps',
                 'priority' => 'high',
-                'status' => Task::STATUS_PENDING,
+                'status' => Task::STATUS_IN_PROGRESS,
                 'start_date' => Carbon::today(),
                 'due_date' => $tomorrow,
             ]
@@ -105,7 +83,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAA, 'document_number' => 'BAA-2026-002'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'BAA Aktivasi Cabang Bank Sejahtera',
                 'description' => 'Upload scan dokumen BAA resmi dari regional 3',
@@ -123,7 +101,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAA, 'document_number' => 'BAA-2026-003'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Finalisasi BAA Migrasi Fiber Optik Kawasan Industri',
                 'description' => 'Konfirmasi tanda tangan kedua pihak untuk migrasi backbone',
@@ -132,7 +110,7 @@ class DatabaseSeeder extends Seeder
                 'kategori_segmen' => Task::SEGMEN_PUBLIK,
                 'service_type' => 'Dark Fiber',
                 'priority' => 'high',
-                'status' => Task::STATUS_PENDING,
+                'status' => Task::STATUS_IN_PROGRESS,
                 'start_date' => Carbon::today()->subDays(1),
                 'due_date' => $tomorrow,
             ]
@@ -142,7 +120,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAI, 'document_number' => 'BAI-2026-011'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Berita Acara Instalasi OLT Baru Site Cikarang',
                 'description' => 'Lengkapi checklist fisik dan foto instalasi rak server',
@@ -151,7 +129,7 @@ class DatabaseSeeder extends Seeder
                 'kategori_segmen' => Task::SEGMEN_PLN,
                 'service_type' => 'Infrastructure OLT',
                 'priority' => 'medium',
-                'status' => Task::STATUS_PENDING,
+                'status' => Task::STATUS_IN_PROGRESS,
                 'start_date' => Carbon::today(),
                 'due_date' => $tomorrow,
             ]
@@ -160,7 +138,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAI, 'document_number' => 'BAI-2026-012'],
             [
-                'user_id' => $user3->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'BAI Perangkat Router Core POP Surabaya',
                 'description' => 'Validasi serial number perangkat dan pengetesan redudansi',
@@ -179,7 +157,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-8801'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Penanganan Tiket SO Open Customer Enterprise 01',
                 'description' => 'Layanan down parsial jalur backhaul, investigasi link flapping',
@@ -197,7 +175,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-8802'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'SO Open Request Bandwidth on Demand',
                 'description' => 'Aktivasi penambahan bandwidth sementara event nasional',
@@ -206,7 +184,7 @@ class DatabaseSeeder extends Seeder
                 'kategori_segmen' => Task::SEGMEN_PUBLIK,
                 'service_type' => 'Bandwidth on Demand',
                 'priority' => 'medium',
-                'status' => Task::STATUS_PENDING,
+                'status' => Task::STATUS_IN_PROGRESS,
                 'start_date' => Carbon::today(),
                 'due_date' => $nextWeek,
             ]
@@ -215,7 +193,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-8800'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'SO Open Konfigurasi VLAN Pelanggan Retail',
                 'description' => 'Mapping VLAN tagging untuk 15 titik cabang',
@@ -237,7 +215,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-8803'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'SO Open Aktivasi Link SCADA Gardu Induk Madiun',
                 'description' => 'Pemasangan router dan integrasi telemetri PLN',
@@ -255,7 +233,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-8804'],
             [
-                'user_id' => $user3->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'SO Open Migrasi Jaringan Fiber Kantor Jember',
                 'description' => 'Penyambungan kabel FO dan uji redaman core',
@@ -278,7 +256,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_EXCEPTION, 'document_number' => 'EXC-2026-041'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Exception Approval SLA Downtime Akibat Force Majeure Banjir',
                 'description' => 'Penyusunan laporan kronologi gangguan dan koordinasi tim lapangan',
@@ -298,7 +276,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_KONTRAK_EXP, 'document_number' => 'KTR-2026-5501'],
             [
-                'user_id' => $user1->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Perpanjangan Kontrak Sewa Fiber Optik Wilayah Timur',
                 'description' => 'Kirim draf adendum perpanjangan masa berlaku kontrak 12 bulan',
@@ -316,7 +294,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_KONTRAK_EXP, 'document_number' => 'KTR-2026-5502'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Evaluasi Renewal Layanan Cloud ICON+',
                 'description' => 'Review utilisasi storage dan kalkulasi proposal harga perpanjangan',
@@ -325,7 +303,7 @@ class DatabaseSeeder extends Seeder
                 'kategori_segmen' => Task::SEGMEN_PUBLIK,
                 'service_type' => 'Cloud VPS Enterprise',
                 'priority' => 'medium',
-                'status' => Task::STATUS_PENDING,
+                'status' => Task::STATUS_IN_PROGRESS,
                 'start_date' => Carbon::today(),
                 'due_date' => $nextWeek,
             ]
@@ -335,7 +313,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAA, 'document_number' => 'BAA-2026-009'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Penyelesaian Dokumen BAA Integrasi Metering AMR',
                 'description' => 'Verifikasi dokumen serah terima integrasi AMR pelanggan industri',
@@ -354,7 +332,7 @@ class DatabaseSeeder extends Seeder
         Task::firstOrCreate(
             ['category' => Task::CATEGORY_BAI, 'document_number' => 'BAI-2026-088'],
             [
-                'user_id' => $user3->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Uji Terima BAI Penarikan Fiber Optik Segmen Jember - Lumajang',
                 'description' => 'Pemeriksaan hasil OTDR dan kelayakan sambungan core fiber optik backbone',
@@ -371,9 +349,9 @@ class DatabaseSeeder extends Seeder
         );
 
         Task::firstOrCreate(
-            ['category' => Task::CATEGORY_SSO_OPEN, 'document_number' => 'SO-2026-902'],
+            ['category' => Task::CATEGORY_SO_OPEN, 'document_number' => 'SO-2026-902'],
             [
-                'user_id' => $user2->id,
+                'user_id' => $employee->id,
                 'assigned_by' => $admin->id,
                 'title' => 'Aktivasi Penambahan Kapasitas Bandwidth IP Transit',
                 'description' => 'Konfigurasi router edge dan update alokasi bandwidth 500 Mbps',

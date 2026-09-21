@@ -40,10 +40,10 @@
         </div>
 
         <div>
-            <label for="email" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Email Kantor</label>
+            <label for="email" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Email</label>
             <input id="email" type="email" name="email" value="{{ old('email') }}" required
                 class="w-full px-3.5 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                placeholder="nama@icon.co.id">
+                placeholder="nama@email.com">
             @error('email')
                 <p class="mt-1 text-xs text-rose-400">{{ $message }}</p>
             @enderror
