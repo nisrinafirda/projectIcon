@@ -30,7 +30,7 @@ class AuthController extends Controller
     public function login(Request $request): RedirectResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'string', 'email'],
+            'username' => ['required', 'string'],
             'password' => ['required', 'string'],
         ]);
 
@@ -44,8 +44,8 @@ class AuthController extends Controller
         }
 
         return back()->withErrors([
-            'email' => 'Email atau kata sandi yang dimasukkan salah.',
-        ])->onlyInput('email');
+            'username' => 'Username atau kata sandi yang dimasukkan salah.',
+        ])->onlyInput('username');
     }
 
     /**

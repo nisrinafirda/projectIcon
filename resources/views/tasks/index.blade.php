@@ -253,6 +253,7 @@
                         <th class="py-3.5 px-4">ID PA</th>
                         <th class="py-3.5 px-4">Layanan</th>
                         <th class="py-3.5 px-4">Karyawan</th>
+                        <th class="py-3.5 px-4">Sales</th>
                         <th class="py-3.5 px-4">Prioritas</th>
                         <th class="py-3.5 px-4">Status</th>
                         <th class="py-3.5 px-4">Deadline</th>
@@ -309,6 +310,9 @@
                             @else
                                 <span class="text-slate-400 italic">Belum ditugaskan</span>
                             @endif
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <span class="text-slate-700">{{ $task->sales_name ?: '-' }}</span>
                         </td>
                         <td class="py-3.5 px-4">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase
@@ -420,7 +424,7 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="9" class="py-12 text-center text-slate-400">
+                        <td colspan="10" class="py-12 text-center text-slate-400">
                             Tidak ada data tugas yang sesuai dengan filter atau pencarian Anda.
                         </td>
                     </tr>

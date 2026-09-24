@@ -113,7 +113,7 @@
         </div>
 
         <!-- Task Metadata Grid: PIC, Dates, Timeline -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <!-- PIC Card -->
             <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Karyawan Penanggung Jawab</p>
@@ -133,6 +133,24 @@
                 @else
                 <p class="text-xs text-slate-400 italic">Belum ditugaskan ke karyawan</p>
                 @endif
+            </div>
+
+            <!-- Sales Card -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sales (dari Excel)</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center text-sm shadow-xs">
+                        💼
+                    </div>
+                    <div>
+                        @if($task->sales_name)
+                            <p class="text-sm font-bold text-slate-900">{{ $task->sales_name }}</p>
+                            <p class="text-xs text-slate-500">Nama Sales Asli</p>
+                        @else
+                            <p class="text-xs text-slate-400 italic">Tidak tersedia</p>
+                        @endif
+                    </div>
+                </div>
             </div>
 
             <!-- Due Date Card -->

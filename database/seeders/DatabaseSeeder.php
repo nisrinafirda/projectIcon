@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
         $admin = User::updateOrCreate(
             ['email' => 'admin@gmail.com'],
             [
+                'username' => 'admin',
                 'nip' => 'ADM001',
                 'name' => 'Admin ICON',
                 'password' => Hash::make(config('auth.admin_password', env('ADMIN_PASSWORD', 'admin123'))),
@@ -36,6 +37,7 @@ class DatabaseSeeder extends Seeder
         $employee = User::updateOrCreate(
             ['email' => 'karyawan@gmail.com'],
             [
+                'username' => 'karyawan.icon',
                 'nip' => 'NIP101',
                 'name' => 'Karyawan ICON',
                 'password' => Hash::make(config('auth.user_demo_password', env('USER_DEMO_PASSWORD', 'user123'))),

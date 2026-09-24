@@ -1,18 +1,18 @@
 <x-layouts.guest title="Masuk ke Portal">
     <div class="mb-6">
         <h3 class="text-xl font-bold text-white">Masuk Akun</h3>
-        <p class="text-xs text-slate-400 mt-1">Silakan masukkan email dan kata sandi Anda</p>
+        <p class="text-xs text-slate-400 mt-1">Silakan masukkan username dan kata sandi Anda</p>
     </div>
 
     <form method="POST" action="{{ route('login') }}" class="space-y-4">
         @csrf
 
         <div>
-            <label for="email" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Email</label>
-            <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus
+            <label for="username" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Username</label>
+            <input id="username" type="text" name="username" value="{{ old('username') }}" required autofocus
                 class="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="nama@email.com">
-            @error('email')
+                placeholder="cth: admin / karyawan.icon">
+            @error('username')
                 <p class="mt-1.5 text-xs text-rose-400">{{ $message }}</p>
             @enderror
         </div>
@@ -43,10 +43,4 @@
             </button>
         </div>
     </form>
-
-    <p class="mt-6 text-center text-xs text-slate-400">
-        Belum punya akun?
-        <a href="{{ route('register') }}" class="font-semibold text-blue-400 hover:text-blue-300 hover:underline">Daftar sekarang</a>
-    </p>
 </x-layouts.guest>
-

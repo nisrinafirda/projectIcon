@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TaskImportExportController;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,10 @@ Route::middleware('auth')->group(function (): void {
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Ganti Password Mandiri
+    Route::get('/profile/password', [PasswordController::class, 'edit'])->name('password.edit');
+    Route::put('/profile/password', [PasswordController::class, 'update'])->name('password.update');
 
     // Export Routes
     Route::get('/tasks/export/excel', [TaskImportExportController::class, 'exportExcel'])->name('tasks.export.excel');

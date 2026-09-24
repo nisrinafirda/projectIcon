@@ -31,7 +31,7 @@ class AuthFlowFeatureTest extends TestCase
         $adminPassword = config('auth.admin_password', 'admin123');
 
         $response = $this->post(route('login'), [
-            'email' => 'admin@gmail.com',
+            'username' => 'admin',
             'password' => $adminPassword,
         ]);
 
@@ -52,7 +52,7 @@ class AuthFlowFeatureTest extends TestCase
         $userPassword = config('auth.user_demo_password', 'user123');
 
         $response = $this->post(route('login'), [
-            'email' => 'karyawan@gmail.com',
+            'username' => 'karyawan.icon',
             'password' => $userPassword,
         ]);
 
@@ -159,5 +159,51 @@ class AuthFlowFeatureTest extends TestCase
         $this->assertNotNull($lastTask);
         $this->assertEquals(Task::CATEGORY_SO_OPEN, $lastTask->category);
         $this->assertEquals($employee->id, $lastTask->user_id);
+    }
+
+    public function test_admin_can_create_and_update_user_with_username(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        // Admin create new user with username
+        $response = $this->actingAs($admin)->post(route('admin.users.store'), [
+            'name' => 'Budi Santoso',
+            'username' => 'budi.santoso',
+            'role' => 'user',
+            'nip' => 'NIP999',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertRedirect(route('admin.users.index'));
+        $this->assertDatabaseHas('users', [
+            'username' => 'budi.santoso',
+            'name' => 'Budi Santoso',
+            'email' => null,
+        ]);
+
+        $createdUser = User::where('username', 'budi.santoso')->first();
+
+        // Duplicate username rejected
+        $duplicateResponse = $this->actingAs($admin)->post(route('admin.users.store'), [
+            'name' => 'Budi Duplicate',
+            'username' => 'budi.santoso',
+            'role' => 'user',
+            'password' => 'secret123',
+        ]);
+        $duplicateResponse->assertSessionHasErrors('username');
+
+        // Admin update user details
+        $updateResponse = $this->actingAs($admin)->put(route('admin.users.update', $createdUser), [
+            'name' => 'Budi S. Updated',
+            'username' => 'budi.updated',
+            'role' => 'user',
+            'nip' => 'NIP999',
+        ]);
+        $updateResponse->assertRedirect(route('admin.users.index'));
+        $this->assertDatabaseHas('users', [
+            'id' => $createdUser->id,
+            'username' => 'budi.updated',
+            'name' => 'Budi S. Updated',
+        ]);
     }
 }

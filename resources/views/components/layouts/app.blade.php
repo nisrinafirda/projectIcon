@@ -177,8 +177,8 @@
         <!-- Sidebar User Profile Footer -->
         <div class="p-4 border-t border-blue-900/60 bg-blue-950/80">
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-full bg-blue-700 border-2 border-blue-400/50 flex items-center justify-center font-bold text-white shadow">
+                <a href="{{ route('password.edit') }}" class="flex items-center gap-3 overflow-hidden group hover:opacity-90 transition-opacity" title="Klik untuk ganti kata sandi">
+                    <div class="w-9 h-9 rounded-full bg-blue-700 border-2 border-blue-400/50 flex items-center justify-center font-bold text-white shadow group-hover:border-white transition-colors shrink-0">
                         {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
                     </div>
                     <div class="overflow-hidden">
@@ -187,14 +187,19 @@
                             {{ auth()->user()->isAdmin() ? 'ADMIN' : 'KARYAWAN' }}
                         </span>
                     </div>
-                </div>
+                </a>
 
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-                    <button type="submit" title="Keluar" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition-colors">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                    </button>
-                </form>
+                <div class="flex items-center gap-1 shrink-0">
+                    <a href="{{ route('password.edit') }}" title="Ganti Kata Sandi" class="p-2 text-slate-400 hover:text-amber-300 hover:bg-white/5 rounded-lg transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                    </a>
+                    <form method="POST" action="{{ route('logout') }}">
+                        @csrf
+                        <button type="submit" title="Keluar" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition-colors">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </aside>
@@ -222,6 +227,11 @@
                         <span>{{ now()->translatedFormat('l, d F Y') }}</span>
                     </div>
 
+                    <a href="{{ route('password.edit') }}" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 text-xs font-semibold transition-all" title="Ganti Kata Sandi">
+                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                        <span class="hidden md:inline">Ganti Password</span>
+                    </a>
+
                     @if(auth()->user()->isAdmin())
                     <a href="{{ route('tasks.create') }}" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm shadow-blue-500/20 transition-colors">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
@@ -239,6 +249,32 @@
                 <svg class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <div class="flex-1 text-sm font-medium">
                     {{ session('success') }}
+                </div>
+            </div>
+            @endif
+
+            @if(session('import_warnings') && count(session('import_warnings')) > 0)
+            <div class="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-950 flex items-start gap-3 shadow-xs">
+                <div class="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 text-base font-bold">
+                    ⚠️
+                </div>
+                <div class="flex-1 text-xs">
+                    <h4 class="font-bold text-amber-900 text-sm mb-1">
+                        Perlu Konfirmasi Penugasan Karyawan ({{ count(session('import_warnings')) }} Baris)
+                    </h4>
+                    <p class="text-amber-800/90 mb-2">
+                        Beberapa nama PIC/Sales di file Excel memiliki kemiripan 70%–89% dengan karyawan terdaftar sehingga tidak di-assign otomatis demi keamanan data:
+                    </p>
+                    <ul class="space-y-1.5 list-disc list-inside bg-white/70 p-3 rounded-xl border border-amber-200/60 font-mono text-[11px] text-amber-900">
+                        @foreach(session('import_warnings') as $warn)
+                            <li>{{ $warn }}</li>
+                        @endforeach
+                    </ul>
+                    <div class="mt-2.5 flex items-center gap-3">
+                        <a href="{{ route('admin.users.index') }}" class="inline-flex items-center gap-1 font-bold text-amber-900 underline hover:text-amber-950">
+                            Buka Kelola Karyawan &rarr;
+                        </a>
+                    </div>
                 </div>
             </div>
             @endif

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'user_id',
+    'sales_name',
     'assigned_by',
     'category',
     'document_number',

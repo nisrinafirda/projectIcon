@@ -41,7 +41,7 @@ class IconTaskFeatureTest extends TestCase
     public function test_user_can_login_and_see_user_dashboard(): void
     {
         $response = $this->post('/login', [
-            'email' => $this->user->email,
+            'username' => $this->user->username,
             'password' => 'password',
         ]);
 
@@ -261,7 +261,7 @@ class IconTaskFeatureTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('tasks.category', 'sso_open'));
         $response->assertStatus(200);
         $response->assertSee('SO Open');
-        $response->assertSee('Total Proyek SO');
+        $response->assertSee('TOTAL PROYEK SO Open');
         $response->assertSee('Total Nilai Baru');
         $response->assertSee('KP Surabaya');
         $response->assertSee('KP Malang');
@@ -375,5 +375,58 @@ class IconTaskFeatureTest extends TestCase
         $this->assertEquals('publik', $task->kategori_segmen);
         $this->assertEquals('in_progress', $task->status);
         $this->assertStringContainsString('Harga Baru: Rp 5.795.000', $task->description);
+    }
+
+    public function test_import_similarity_matching_rules(): void
+    {
+        $targetUser = User::factory()->create([
+            'name' => 'Budi Santoso',
+            'email' => 'budi.santoso@icon.co.id',
+            'role' => 'user',
+        ]);
+
+        // Row 1: "Buddi Santoso" -> >= 90% similarity -> auto-assigned to $targetUser
+        // Row 2: "Buddi Santoz" -> 70% - 89% similarity -> fallback to admin, warnings generated
+        // Row 3: "Zulfaqar Siregar" -> < 70% similarity -> fallback to admin, no warning
+        $csv = "Kategori,Nomor Dokumen,Judul Tugas,PIC,Pelanggan,Layanan,Prioritas,Mulai,Deadline,Keterangan\n";
+        $csv .= "sso_open,SO-SIM-90,Tugas Sangat Mirip,Buddi Santoso,PT ABC,Metronet,high,2026-09-17,2026-09-20,Catatan 1\n";
+        $csv .= "sso_open,SO-SIM-75,Tugas Agak Mirip,Buddi Santoz,PT XYZ,IP Transit,medium,2026-09-17,2026-09-20,Catatan 2\n";
+        $csv .= "sso_open,SO-SIM-00,Tugas Tidak Mirip,Zulfaqar Siregar,PT DEF,IP Transit,low,2026-09-17,2026-09-20,Catatan 3\n";
+
+        $file = UploadedFile::fake()->createWithContent('import_similarity.csv', $csv);
+
+        $response = $this->actingAs($this->admin)->post(route('tasks.import.process'), [
+            'file' => $file,
+            'duplicate_action' => 'skip',
+            'target_category' => 'sso_open',
+        ]);
+
+        $response->assertRedirect(route('tasks.category', 'sso_open'));
+        $response->assertSessionHas('success');
+        $response->assertSessionHas('import_warnings');
+
+        $warnings = session('import_warnings');
+        $this->assertCount(1, $warnings);
+        $this->assertStringContainsString('Perlu Konfirmasi', $warnings[0]);
+        $this->assertStringContainsString('Buddi Santoz', $warnings[0]);
+        $this->assertStringContainsString('Budi Santoso', $warnings[0]);
+
+        // Task 1: Auto assigned to Budi Santoso
+        $task1 = Task::where('document_number', 'SO-SIM-90')->first();
+        $this->assertNotNull($task1);
+        $this->assertEquals($targetUser->id, $task1->user_id);
+        $this->assertEquals('Buddi Santoso', $task1->sales_name);
+
+        // Task 2: Assigned to admin (fallback), sales_name preserved
+        $task2 = Task::where('document_number', 'SO-SIM-75')->first();
+        $this->assertNotNull($task2);
+        $this->assertEquals($this->admin->id, $task2->user_id);
+        $this->assertEquals('Buddi Santoz', $task2->sales_name);
+
+        // Task 3: Assigned to admin (fallback), sales_name preserved, not in warnings
+        $task3 = Task::where('document_number', 'SO-SIM-00')->first();
+        $this->assertNotNull($task3);
+        $this->assertEquals($this->admin->id, $task3->user_id);
+        $this->assertEquals('Zulfaqar Siregar', $task3->sales_name);
     }
 }

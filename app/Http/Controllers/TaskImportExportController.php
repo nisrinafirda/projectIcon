@@ -229,6 +229,7 @@ class TaskImportExportController extends Controller
         $updatedCount = 0;
         $skippedCount = 0;
         $errors = [];
+        $importWarnings = [];
         $distribution = [];
 
         // Skip header row
@@ -357,6 +358,32 @@ class TaskImportExportController extends Controller
                             $targetUser = $usersByFirstName[$identFirstWord];
                         }
                     }
+
+                    // Check name similarity using similar_text
+                    if (! $targetUser) {
+                        $bestSimilarity = 0.0;
+                        $bestMatchUser = null;
+
+                        foreach ($usersByName as $cleanUName => $u) {
+                            similar_text($cleanIdent, $cleanUName, $percent);
+                            if ($percent > $bestSimilarity) {
+                                $bestSimilarity = $percent;
+                                $bestMatchUser = $u;
+                            }
+                        }
+
+                        if ($bestMatchUser) {
+                            if ($bestSimilarity >= 90.0) {
+                                // Rule 1: >= 90% -> Auto match and assign
+                                $targetUser = $bestMatchUser;
+                            } elseif ($bestSimilarity >= 70.0) {
+                                // Rule 2: 70% - 89% -> Keep fallback, flag as "Perlu Konfirmasi"
+                                $percentFormatted = number_format($bestSimilarity, 1);
+                                $importWarnings[] = "Baris #{$rowNum} ({$docNumber}): Perlu Konfirmasi — '{$userIdentifier}' mirip ({$percentFormatted}%) dengan '{$bestMatchUser->name}'. Tugas sementara dialihkan ke fallback (Admin/Default). Tolong cek manual di halaman Kelola Karyawan atau edit task ini.";
+                            }
+                            // Rule 3: < 70% -> Ordinary fallback, no special note
+                        }
+                    }
                 }
             }
 
@@ -397,6 +424,7 @@ class TaskImportExportController extends Controller
                         'priority' => $priority,
                         'start_date' => $parsedStartDate ?: $existing->start_date,
                         'due_date' => $parsedDueDate ?: $existing->due_date,
+                        'sales_name' => $userIdentifier ?: $existing->sales_name,
                     ];
                     if ($kp) {
                         $updatePayload['kp'] = $kp;
@@ -432,6 +460,7 @@ class TaskImportExportController extends Controller
                 'status' => $status,
                 'start_date' => $parsedStartDate,
                 'due_date' => $parsedDueDate,
+                'sales_name' => $userIdentifier,
             ]);
 
             $insertedCount++;
@@ -455,15 +484,21 @@ class TaskImportExportController extends Controller
             $feedback .= ' Terdistribusi otomatis ke: '.implode(', ', $distList).'.';
         }
 
+        if (! empty($importWarnings)) {
+            $feedback .= ' (Perhatian: ada '.count($importWarnings).' tugas perlu konfirmasi penugasan).';
+        }
+
         if ($targetCategory) {
             return redirect()->route('tasks.category', $targetCategory)
                 ->with('success', $feedback)
-                ->with('import_errors', $errors);
+                ->with('import_errors', $errors)
+                ->with('import_warnings', $importWarnings);
         }
 
         return redirect()->route('tasks.index')
             ->with('success', $feedback)
-            ->with('import_errors', $errors);
+            ->with('import_errors', $errors)
+            ->with('import_warnings', $importWarnings);
     }
 
     /**
