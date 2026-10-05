@@ -181,7 +181,8 @@ class SbuSheetMapper
         $kategoriSegmen = $this->normalizeSegmen($get('kategori_segmen'));
 
         // Normalize status
-        $status = $this->normalizeStatus($get('status'));
+        $rawStatus = $get('status');
+        $status = $this->normalizeStatus($rawStatus);
 
         // Parse dates
         $dates = $this->parseDates($row, $columnMap);
@@ -197,6 +198,7 @@ class SbuSheetMapper
             'kategori_segmen' => $kategoriSegmen,
             'priority' => 'medium',
             'status' => $status,
+            'raw_status' => $rawStatus !== '' ? $rawStatus : null,
             'start_date' => $dates['start_date'],
             'due_date' => $dates['due_date'],
             'sales_identifier' => $sales, // for user matching in controller

@@ -156,21 +156,11 @@
                     </div>
                 </div>
 
-                <!-- 4. Prioritas & Tanggal Batas Waktu (Deadline) -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                    <div>
-                        <label for="priority" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                            Prioritas Pekerjaan <span class="text-rose-500">*</span>
-                        </label>
-                        <select id="priority" name="priority" required
-                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
-                            <option value="low" {{ old('priority') === 'low' ? 'selected' : '' }}>Rendah (Low)</option>
-                            <option value="medium" {{ old('priority', 'medium') === 'medium' ? 'selected' : '' }}>Normal (Medium)</option>
-                            <option value="high" {{ old('priority') === 'high' ? 'selected' : '' }}>Tinggi (High)</option>
-                            <option value="urgent" {{ old('priority') === 'urgent' ? 'selected' : '' }}>Mendesak (Urgent)</option>
-                        </select>
-                    </div>
+                <!-- Hidden Priority (default medium) -->
+                <input type="hidden" name="priority" value="medium">
 
+                <!-- 4. Tanggal Mulai & Batas Waktu (Deadline) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                         <label for="start_date" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                             Tanggal Mulai
@@ -264,4 +254,3 @@
     </script>
     @endpush
 </x-layouts.app>
-

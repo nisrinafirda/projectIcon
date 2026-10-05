@@ -45,15 +45,6 @@
                             {{ $task->document_number }}
                         </span>
 
-                        <!-- Priority Badge -->
-                        <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase
-                            {{ $task->priority === 'urgent' ? 'bg-rose-100 text-rose-700' : '' }}
-                            {{ $task->priority === 'high' ? 'bg-orange-100 text-orange-700' : '' }}
-                            {{ $task->priority === 'medium' ? 'bg-blue-100 text-blue-700' : '' }}
-                            {{ $task->priority === 'low' ? 'bg-slate-100 text-slate-600' : '' }}">
-                            Prioritas: {{ $task->priority }}
-                        </span>
-
                         @if($task->kp)
                         <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
                             🏢 KP {{ $task->kp_label }}

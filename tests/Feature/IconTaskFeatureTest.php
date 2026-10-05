@@ -227,6 +227,7 @@ class IconTaskFeatureTest extends TestCase
             'category' => Task::CATEGORY_BAA,
             'user_id' => $this->user->id,
             'title' => 'Tugas PLN Surabaya Khusus',
+            'service_type' => null,
             'kp' => Task::KP_SURABAYA,
             'kategori_segmen' => Task::SEGMEN_PLN,
         ]);
@@ -235,6 +236,7 @@ class IconTaskFeatureTest extends TestCase
             'category' => Task::CATEGORY_BAA,
             'user_id' => $this->user->id,
             'title' => 'Tugas Publik Malang Khusus',
+            'service_type' => null,
             'kp' => Task::KP_MALANG,
             'kategori_segmen' => Task::SEGMEN_PUBLIK,
         ]);
@@ -373,7 +375,8 @@ class IconTaskFeatureTest extends TestCase
         $this->assertEquals('UNIVERSITAS MUHAMMADIYAH MALANG', $task->customer_name);
         $this->assertEquals('malang', $task->kp);
         $this->assertEquals('publik', $task->kategori_segmen);
-        $this->assertEquals('in_progress', $task->status);
+        $this->assertEquals('pending', $task->status);
+        $this->assertEquals('[Status Excel: On Process]', $task->submission_notes);
         $this->assertStringContainsString('Harga Baru: Rp 5.795.000', $task->description);
     }
 

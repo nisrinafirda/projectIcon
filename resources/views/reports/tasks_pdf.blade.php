@@ -126,7 +126,6 @@
                 <th>Layanan</th>
                 <th style="width: 100px;">Karyawan PIC</th>
                 <th style="width: 85px;">Sales</th>
-                <th style="width: 55px;">Prioritas</th>
                 <th style="width: 90px;">Status</th>
                 <th style="width: 70px;">Deadline</th>
             </tr>
@@ -156,7 +155,6 @@
                 </td>
                 <td>{{ $task->user ? $task->user->name : '-' }}</td>
                 <td>{{ $task->sales_name ?: '-' }}</td>
-                <td style="text-transform: uppercase;">{{ $task->priority }}</td>
                 <td>
                     <span class="
                         {{ $task->status === 'pending' ? 'status-pending' : '' }}
@@ -171,7 +169,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="9" style="text-align: center; color: #94a3b8; padding: 20px;">
+                <td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">
                     Tidak ada data tugas yang tersedia.
                 </td>
             </tr>

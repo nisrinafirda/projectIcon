@@ -9,8 +9,8 @@
             <div>
                 <h2 class="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                     <span>{{ $currentCategoryLabel }}</span>
-                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                        {{ $tasks->total() }} Data
+                    <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {{ $totalTaskCount }} Tugas • {{ $customerGroups->total() }} Pelanggan
                     </span>
                 </h2>
                 <p class="text-xs text-slate-500 mt-0.5">
@@ -228,12 +228,26 @@
                     </select>
                 </div>
 
+                @if(auth()->user()->isAdmin() && isset($salesList) && $salesList->isNotEmpty())
+                <!-- Filter Sales -->
+                <div>
+                    <select name="sales_name" class="w-full py-2 px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                        <option value="">Semua Sales</option>
+                        @foreach($salesList as $salesPerson)
+                            <option value="{{ $salesPerson }}" {{ request('sales_name') === $salesPerson ? 'selected' : '' }}>
+                                {{ $salesPerson }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
+
                 <!-- Filter Actions -->
                 <div class="flex items-center gap-2">
                     <button type="submit" class="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors">
                         Filter
                     </button>
-                    @if(request()->hasAny(['search', 'status', 'deadline_filter', 'user_id', 'kp', 'kategori_segmen']))
+                    @if(request()->hasAny(['search', 'status', 'deadline_filter', 'user_id', 'kp', 'kategori_segmen', 'sales_name']))
                     <a href="{{ $category ? route('tasks.category', $category) : route('tasks.index') }}" class="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs transition-colors">
                         Reset
                     </a>
@@ -243,188 +257,293 @@
         </div>
     </div>
 
-    <!-- Task Table -->
+    <!-- Task Table (Grouped by Customer Accordion) -->
     <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs text-slate-600">
+            <table class="w-full text-left text-xs text-slate-600 border-collapse">
                 <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
                     <tr>
-                        <th class="py-3.5 px-4">Kategori & KP</th>
-                        <th class="py-3.5 px-4">ID PA</th>
-                        <th class="py-3.5 px-4">Layanan</th>
-                        <th class="py-3.5 px-4">Karyawan</th>
-                        <th class="py-3.5 px-4">Sales</th>
-                        <th class="py-3.5 px-4">Prioritas</th>
-                        <th class="py-3.5 px-4">Status</th>
-                        <th class="py-3.5 px-4">Deadline</th>
-                        <th class="py-3.5 px-4">Komentar</th>
-                        <th class="py-3.5 px-4 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">Aksi</th>
+                        <th class="py-3.5 px-4 w-10 text-center"></th>
+                        <th class="py-3.5 px-4">Nama Pelanggan</th>
+                        <th class="py-3.5 px-4 text-center w-36">Jumlah Layanan</th>
+                        <th class="py-3.5 px-4">Ringkasan Status</th>
+                        <th class="py-3.5 px-4 w-44">Deadline Terdekat</th>
+                        <th class="py-3.5 px-4 text-right w-28">Aksi</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    @forelse($tasks as $task)
-                    <tr class="hover:bg-slate-50/80 transition-colors">
-                        <td class="py-3.5 px-4">
-                            <div class="flex flex-col gap-1 items-start">
-                                <a href="{{ route('tasks.category', $task->category) }}" class="inline-block px-2 py-0.5 rounded text-[10px] font-bold
-                                    {{ $task->category === 'sso_open' ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200' : '' }}
-                                    {{ $task->category === 'baa' ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : '' }}
-                                    {{ $task->category === 'bai' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : '' }}
-                                    {{ $task->category === 'exception' ? 'bg-rose-100 text-rose-800 hover:bg-rose-200' : '' }}
-                                    {{ $task->category === 'kontrak_exp' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200' : '' }}">
-                                    {{ $task->category_label }}
-                                </a>
-                                <div class="flex items-center gap-1">
-                                    @if($task->kp)
-                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                                        KP {{ $task->kp_label }}
-                                    </span>
-                                    @endif
-                                    @if($task->kategori_segmen)
-                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold {{ $task->kategori_segmen === 'pln' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700' }}">
-                                        {{ $task->kategori_segmen_label }}
-                                    </span>
-                                    @endif
-                                </div>
-                            </div>
-                        </td>
-                        <td class="py-3.5 px-4 font-mono font-bold text-slate-900">
-                            {{ $task->document_number }}
-                        </td>
-                        <td class="py-3.5 px-4 max-w-xs">
-                            <a href="{{ route('tasks.show', $task) }}" class="font-bold text-slate-900 hover:text-blue-600 truncate block">
-                                {{ $task->service_type ?: ($task->title ?: '-') }}
-                            </a>
-                            @if($task->customer_name)
-                            <div class="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                <span>🏢 {{ $task->customer_name }}</span>
-                            </div>
-                            @endif
-                        </td>
-                        <td class="py-3.5 px-4">
-                            @if($task->user)
-                                <span class="font-medium text-slate-800">{{ $task->user->name }}</span>
-                                @if($task->user->nip)
-                                    <span class="block text-[10px] text-slate-400">{{ $task->user->nip }}</span>
-                                @endif
-                            @else
-                                <span class="text-slate-400 italic">Belum ditugaskan</span>
-                            @endif
-                        </td>
-                        <td class="py-3.5 px-4">
-                            <span class="text-slate-700">{{ $task->sales_name ?: '-' }}</span>
-                        </td>
-                        <td class="py-3.5 px-4">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase
-                                {{ $task->priority === 'urgent' ? 'bg-rose-100 text-rose-700 border border-rose-200' : '' }}
-                                {{ $task->priority === 'high' ? 'bg-orange-100 text-orange-700' : '' }}
-                                {{ $task->priority === 'medium' ? 'bg-blue-100 text-blue-700' : '' }}
-                                {{ $task->priority === 'low' ? 'bg-slate-100 text-slate-600' : '' }}">
-                                {{ $task->priority }}
-                            </span>
-                        </td>
-                        <td class="py-3.5 px-4">
-                            <span id="status-badge-{{ $task->id }}" class="px-2.5 py-1 rounded-full text-[10px] font-bold
-                                {{ in_array($task->status, ['pending', 'in_progress']) ? 'bg-blue-100 text-blue-700' : '' }}
-                                {{ $task->status === 'submitted' ? 'bg-purple-100 text-purple-700' : '' }}
-                                {{ $task->status === 'approved' ? 'bg-emerald-100 text-emerald-700' : '' }}
-                                {{ $task->status === 'rejected' ? 'bg-rose-100 text-rose-700' : '' }}">
-                                {{ $task->status_label }}
-                            </span>
-                        </td>
-                        <td class="py-3.5 px-4">
-                            <span class="font-bold {{ $task->is_overdue ? 'text-rose-600' : ($task->is_due_soon ? 'text-amber-600' : 'text-slate-700') }}">
-                                {{ $task->due_date ? $task->due_date->format('d/m/Y') : '-' }}
-                            </span>
-                            @if($task->is_due_soon)
-                                <span class="block text-[10px] font-bold text-amber-600">Besok / Segera</span>
-                            @elseif($task->is_overdue)
-                                <span class="block text-[10px] font-bold text-rose-600">Terlambat</span>
-                            @endif
-                        </td>
-                        <td class="py-3.5 px-4 min-w-[180px]">
-                            @if(!auth()->user()->isAdmin() && !in_array($task->status, ['submitted', 'approved']))
-                                {{-- Karyawan: bisa isi/edit komentar --}}
-                                <div class="flex flex-col gap-1.5">
-                                    <div class="flex items-center gap-1">
-                                        <input type="text" id="comment-{{ $task->id }}"
-                                            class="flex-1 text-[11px] px-2 py-1.5 rounded-lg border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-slate-400
-                                            {{ $task->is_overdue && !$task->comments ? 'border-rose-400 bg-rose-50' : 'border-slate-300' }}"
-                                            placeholder="{{ $task->is_overdue ? 'Wajib diisi...' : 'Opsional...' }}"
-                                            value="{{ $task->comments }}">
-                                        @if($task->is_overdue)
-                                        <button type="button"
-                                            onclick="saveTaskComment({{ $task->id }}, '{{ route('tasks.save-comment', $task) }}')"
-                                            id="save-comment-btn-{{ $task->id }}"
-                                            class="shrink-0 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-colors
-                                            {{ $task->comments ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-rose-100 text-rose-700 hover:bg-rose-200 animate-pulse' }}"
-                                            title="Simpan komentar">
-                                            {{ $task->comments ? '✓' : 'Simpan' }}
-                                        </button>
-                                        @endif
-                                    </div>
-                                    @if($task->is_overdue && !$task->comments)
-                                    <span class="text-[10px] text-rose-500 font-medium">⚠ Wajib isi alasan keterlambatan</span>
-                                    @elseif($task->is_overdue && $task->comments)
-                                    <span class="text-[10px] text-emerald-600 font-medium">✓ Komentar tersimpan</span>
-                                    @endif
-                                </div>
-                            @else
-                                {{-- Admin atau tugas sudah submitted/approved: tampilkan read-only --}}
-                                @if($task->comments)
-                                    <div class="flex flex-col gap-1">
-                                        @if($task->is_overdue)
-                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
-                                            🚨 Terlambat
-                                        </span>
-                                        @endif
-                                        <span class="text-[11px] text-slate-700 block max-w-[180px]" title="{{ $task->comments }}">
-                                            {{ Str::limit($task->comments, 50) }}
-                                        </span>
-                                    </div>
-                                @else
-                                    @if($task->is_overdue && auth()->user()->isAdmin())
-                                    <span class="text-[10px] text-rose-500 font-medium italic">⚠ Belum ada komentar</span>
-                                    @else
-                                    <span class="text-[11px] text-slate-400 italic">-</span>
-                                    @endif
-                                @endif
-                            @endif
-                        </td>
-                        <td class="py-3.5 px-4 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">
-                            @if(auth()->user()->isAdmin())
-                            <div class="flex items-center justify-end gap-1.5">
-                                <a href="{{ route('tasks.show', $task) }}" class="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white font-semibold text-xs transition-colors">
-                                    Detail
-                                </a>
+                    @forelse($customerGroups as $group)
+                    @php
+                        $customerKey = $group->customer_key;
+                        $customerTasks = $groupedTasks->get($customerKey, collect());
+                        $displayName = $group->display_name ?: 'Tanpa Nama Pelanggan';
+                        $nearestDeadline = $group->nearest_deadline ? \Carbon\Carbon::parse($group->nearest_deadline) : null;
+                        $isOverdue = $nearestDeadline && $nearestDeadline->isPast();
+                        $isDueSoon = $nearestDeadline && !$isOverdue && $nearestDeadline->diffInDays(now()) <= 1;
+                        $groupId = 'group-' . $loop->index;
 
-                                <a href="{{ route('tasks.edit', $task) }}" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Edit">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                                </a>
+                        // Status breakdown for this customer
+                        $approvedCount = $customerTasks->where('status', \App\Models\Task::STATUS_APPROVED)->count();
+                        $inProgressCount = $customerTasks->whereIn('status', [\App\Models\Task::STATUS_PENDING, \App\Models\Task::STATUS_IN_PROGRESS])->count();
+                        $submittedCount = $customerTasks->where('status', \App\Models\Task::STATUS_SUBMITTED)->count();
+                        $rejectedCount = $customerTasks->where('status', \App\Models\Task::STATUS_REJECTED)->count();
+                    @endphp
+
+                    <!-- Baris Induk Pelanggan (Accordion Header) -->
+                    <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer select-none border-b border-slate-100"
+                        onclick="toggleAccordion('{{ $groupId }}')">
+                        <td class="py-4 px-4 text-center">
+                            <span id="chevron-{{ $groupId }}" class="inline-block transition-transform duration-200 text-slate-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+                            </span>
+                        </td>
+                        <td class="py-4 px-4">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-8 h-8 rounded-lg bg-blue-100/70 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                    🏢
+                                </div>
+                                <div>
+                                    <div class="font-extrabold text-slate-900 text-sm tracking-tight hover:text-blue-600 transition-colors">
+                                        {{ $displayName }}
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 mt-0.5">
+                                        Klik baris untuk melihat rincian per SID / Layanan
+                                    </div>
+                                </div>
                             </div>
+                        </td>
+                        <td class="py-4 px-4 text-center">
+                            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200/60 shadow-2xs">
+                                <span>📦</span>
+                                <span>{{ $group->task_count }} Layanan</span>
+                            </span>
+                        </td>
+                        <td class="py-4 px-4">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                @if($approvedCount > 0)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                                        ✓ {{ $approvedCount }} Selesai
+                                    </span>
+                                @endif
+                                @if($inProgressCount > 0)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
+                                        ⏳ {{ $inProgressCount }} Dikerjakan
+                                    </span>
+                                @endif
+                                @if($submittedCount > 0)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                                        👁 {{ $submittedCount }} Review
+                                    </span>
+                                @endif
+                                @if($rejectedCount > 0)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                                        ⚠️ {{ $rejectedCount }} Revisi
+                                    </span>
+                                @endif
+                            </div>
+                        </td>
+                        <td class="py-4 px-4">
+                            @if($nearestDeadline)
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-xs {{ $isOverdue ? 'text-rose-600' : ($isDueSoon ? 'text-amber-600' : 'text-slate-700') }}">
+                                        {{ $nearestDeadline->format('d/m/Y') }}
+                                    </span>
+                                    @if($isOverdue)
+                                        <span class="text-[10px] font-bold text-rose-600">🚨 Terlambat</span>
+                                    @elseif($isDueSoon)
+                                        <span class="text-[10px] font-bold text-amber-600">⚠️ Besok / Segera</span>
+                                    @endif
+                                </div>
                             @else
-                            <!-- Box Centang Selesai untuk Karyawan (Role User) -->
-                            <form method="POST" action="{{ route('tasks.toggle-complete', $task) }}" class="inline-flex items-center justify-center task-toggle-form">
-                                @csrf
-                                <label class="relative inline-flex items-center justify-center cursor-pointer p-1 rounded-lg hover:bg-slate-100 transition-colors"
-                                    title="{{ in_array($task->status, ['submitted', 'approved']) ? 'Tugas Selesai (Klik untuk batalkan)' : 'Klik untuk menandai tugas selesai' }}">
-                                    <input type="checkbox"
-                                        name="completed"
-                                        value="1"
-                                        {{ in_array($task->status, ['submitted', 'approved']) ? 'checked' : '' }}
-                                        onchange="handleTaskToggle(this, {{ $task->id }}, '{{ route('tasks.toggle-complete', $task) }}')"
-                                        class="w-5 h-5 text-emerald-600 bg-white border-2 border-slate-300 rounded-md focus:ring-emerald-500 focus:ring-2 cursor-pointer transition-all">
-                                    <noscript>
-                                        <button type="submit" class="ml-1 text-[10px] text-blue-600 underline">Simpan</button>
-                                    </noscript>
-                                </label>
-                            </form>
+                                <span class="text-slate-400 italic text-xs">-</span>
                             @endif
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors">
+                                <span>Rincian</span>
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </span>
+                        </td>
+                    </tr>
+
+                    <!-- Baris Rincian Accordion (Expandable Child Content) -->
+                    <tr id="details-{{ $groupId }}" class="hidden bg-slate-50/70 border-b-2 border-slate-200">
+                        <td colspan="6" class="p-0">
+                            <div class="px-6 py-4 bg-slate-50/80">
+                                <div class="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                                    <div class="px-4 py-2.5 bg-slate-100/70 border-b border-slate-200 flex items-center justify-between">
+                                        <span class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>📋</span>
+                                            <span>Daftar Layanan / SID — {{ $displayName }} ({{ $customerTasks->count() }} Dokumen)</span>
+                                        </span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-left text-xs text-slate-600">
+                                            <thead class="bg-slate-50/90 text-slate-500 font-semibold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                                                <tr>
+                                                    <th class="py-2.5 px-3.5">Kategori & KP</th>
+                                                    <th class="py-2.5 px-3.5">ID PA / SID</th>
+                                                    <th class="py-2.5 px-3.5">Nama Layanan</th>
+                                                    <th class="py-2.5 px-3.5">Sales</th>
+                                                    <th class="py-2.5 px-3.5">Status</th>
+                                                    <th class="py-2.5 px-3.5">Deadline</th>
+                                                    <th class="py-2.5 px-3.5">Komentar</th>
+                                                    <th class="py-2.5 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-slate-100 bg-white">
+                                                @forelse($customerTasks as $task)
+                                                <tr class="hover:bg-blue-50/30 transition-colors">
+                                                    <td class="py-3 px-3.5">
+                                                        <div class="flex flex-col gap-1 items-start">
+                                                            <a href="{{ route('tasks.category', $task->category) }}" class="inline-block px-2 py-0.5 rounded text-[10px] font-bold
+                                                                {{ $task->category === 'sso_open' ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200' : '' }}
+                                                                {{ $task->category === 'baa' ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : '' }}
+                                                                {{ $task->category === 'bai' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : '' }}
+                                                                {{ $task->category === 'exception' ? 'bg-rose-100 text-rose-800 hover:bg-rose-200' : '' }}
+                                                                {{ $task->category === 'kontrak_exp' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200' : '' }}">
+                                                                {{ $task->category_label }}
+                                                            </a>
+                                                            <div class="flex items-center gap-1">
+                                                                @if($task->kp)
+                                                                <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                                                    KP {{ $task->kp_label }}
+                                                                </span>
+                                                                @endif
+                                                                @if($task->kategori_segmen)
+                                                                <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold {{ $task->kategori_segmen === 'pln' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700' }}">
+                                                                    {{ $task->kategori_segmen_label }}
+                                                                </span>
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="py-3 px-3.5 font-mono font-bold text-slate-900 text-xs">
+                                                        {{ $task->document_number }}
+                                                    </td>
+                                                    <td class="py-3 px-3.5 max-w-sm">
+                                                        <a href="{{ route('tasks.show', $task) }}" class="font-bold text-slate-900 hover:text-blue-600 block text-xs">
+                                                            {{ $task->service_type ?: ($task->title ?: '-') }}
+                                                        </a>
+                                                    </td>
+                                                    <td class="py-3 px-3.5">
+                                                        <span class="text-slate-700 font-medium">
+                                                            {{ $task->sales_name ?: ($task->user ? $task->user->name : '-') }}
+                                                        </span>
+                                                    </td>
+                                                    <td class="py-3 px-3.5">
+                                                        <span id="status-badge-{{ $task->id }}" class="px-2.5 py-1 rounded-full text-[10px] font-bold inline-block
+                                                            {{ in_array($task->status, ['pending', 'in_progress']) ? 'bg-blue-100 text-blue-700' : '' }}
+                                                            {{ $task->status === 'submitted' ? 'bg-purple-100 text-purple-700' : '' }}
+                                                            {{ $task->status === 'approved' ? 'bg-emerald-100 text-emerald-700' : '' }}
+                                                            {{ $task->status === 'rejected' ? 'bg-rose-100 text-rose-700' : '' }}">
+                                                            {{ $task->status_label }}
+                                                        </span>
+                                                    </td>
+                                                    <td class="py-3 px-3.5">
+                                                        <span class="font-bold {{ $task->is_overdue ? 'text-rose-600' : ($task->is_due_soon ? 'text-amber-600' : 'text-slate-700') }}">
+                                                            {{ $task->due_date ? $task->due_date->format('d/m/Y') : '-' }}
+                                                        </span>
+                                                        @if($task->is_due_soon)
+                                                            <span class="block text-[10px] font-bold text-amber-600">Besok / Segera</span>
+                                                        @elseif($task->is_overdue)
+                                                            <span class="block text-[10px] font-bold text-rose-600">Terlambat</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="py-3 px-3.5 min-w-[180px]">
+                                                        @if(!auth()->user()->isAdmin() && !in_array($task->status, ['submitted', 'approved']))
+                                                            {{-- Karyawan: input komentar --}}
+                                                            <div class="flex flex-col gap-1.5">
+                                                                <div class="flex items-center gap-1">
+                                                                    <input type="text" id="comment-{{ $task->id }}"
+                                                                        class="flex-1 text-[11px] px-2 py-1.5 rounded-lg border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-slate-400
+                                                                        {{ $task->is_overdue && !$task->comments ? 'border-rose-400 bg-rose-50' : 'border-slate-300' }}"
+                                                                        placeholder="{{ $task->is_overdue ? 'Wajib diisi...' : 'Tulis komentar...' }}"
+                                                                        value="{{ $task->comments }}">
+                                                                    <button type="button"
+                                                                        onclick="saveTaskComment({{ $task->id }}, '{{ route('tasks.save-comment', $task) }}')"
+                                                                        id="save-comment-btn-{{ $task->id }}"
+                                                                        class="shrink-0 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-colors
+                                                                        {{ $task->comments ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : ($task->is_overdue ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 animate-pulse' : 'bg-blue-100 text-blue-700 hover:bg-blue-200') }}"
+                                                                        title="Simpan komentar">
+                                                                        {{ $task->comments ? '✓' : 'Simpan' }}
+                                                                    </button>
+                                                                </div>
+                                                                @if($task->is_overdue && !$task->comments)
+                                                                <span class="text-[10px] text-rose-500 font-medium">⚠ Wajib isi alasan keterlambatan</span>
+                                                                @elseif($task->comments)
+                                                                <span class="text-[10px] text-emerald-600 font-medium">✓ Komentar tersimpan</span>
+                                                                @endif
+                                                            </div>
+                                                        @else
+                                                            {{-- Admin atau tugas sudah submitted/approved: read-only --}}
+                                                            @if($task->comments)
+                                                                <div class="flex flex-col gap-1">
+                                                                    @if($task->is_overdue)
+                                                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
+                                                                        🚨 Terlambat
+                                                                    </span>
+                                                                    @endif
+                                                                    <span class="text-[11px] text-slate-700 block max-w-[180px]" title="{{ $task->comments }}">
+                                                                        {{ Str::limit($task->comments, 50) }}
+                                                                    </span>
+                                                                </div>
+                                                            @else
+                                                                @if($task->is_overdue && auth()->user()->isAdmin())
+                                                                <span class="text-[10px] text-rose-500 font-medium italic">⚠ Belum ada komentar</span>
+                                                                @else
+                                                                <span class="text-[11px] text-slate-400 italic">-</span>
+                                                                @endif
+                                                            @endif
+                                                        @endif
+                                                    </td>
+                                                    <td class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">
+                                                        @if(auth()->user()->isAdmin())
+                                                        <div class="flex items-center justify-end gap-1.5">
+                                                            <a href="{{ route('tasks.show', $task) }}" class="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white font-semibold text-xs transition-colors">
+                                                                Detail
+                                                            </a>
+                                                            <a href="{{ route('tasks.edit', $task) }}" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Edit">
+                                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                            </a>
+                                                        </div>
+                                                        @else
+                                                        <!-- Box Centang Selesai untuk Karyawan -->
+                                                        <form method="POST" action="{{ route('tasks.toggle-complete', $task) }}" class="inline-flex items-center justify-center task-toggle-form">
+                                                            @csrf
+                                                            <label class="relative inline-flex items-center justify-center cursor-pointer p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                                                                title="{{ in_array($task->status, ['submitted', 'approved']) ? 'Tugas Selesai (Klik untuk batalkan)' : 'Klik untuk menandai tugas selesai' }}">
+                                                                <input type="checkbox"
+                                                                    name="completed"
+                                                                    value="1"
+                                                                    {{ in_array($task->status, ['submitted', 'approved']) ? 'checked' : '' }}
+                                                                    onchange="handleTaskToggle(this, {{ $task->id }}, '{{ route('tasks.toggle-complete', $task) }}')"
+                                                                    class="w-5 h-5 text-emerald-600 bg-white border-2 border-slate-300 rounded-md focus:ring-emerald-500 focus:ring-2 cursor-pointer transition-all">
+                                                                <noscript>
+                                                                    <button type="submit" class="ml-1 text-[10px] text-blue-600 underline">Simpan</button>
+                                                                </noscript>
+                                                            </label>
+                                                        </form>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                                @empty
+                                                <tr>
+                                                    <td colspan="8" class="py-4 text-center text-slate-400 italic">
+                                                        Tidak ada rincian layanan untuk pelanggan ini.
+                                                    </td>
+                                                </tr>
+                                                @endforelse
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </td>
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="10" class="py-12 text-center text-slate-400">
+                        <td colspan="6" class="py-12 text-center text-slate-400">
                             Tidak ada data tugas yang sesuai dengan filter atau pencarian Anda.
                         </td>
                     </tr>
@@ -433,22 +552,33 @@
             </table>
         </div>
 
-        @if($tasks->hasPages())
+        @if($customerGroups->hasPages())
         <div class="p-4 border-t border-slate-100">
-            {{ $tasks->links() }}
+            {{ $customerGroups->links() }}
         </div>
         @endif
     </div>
 
     @push('scripts')
     <script>
+    function toggleAccordion(groupId) {
+        const detailsRow = document.getElementById('details-' + groupId);
+        const chevron = document.getElementById('chevron-' + groupId);
+        if (detailsRow) {
+            detailsRow.classList.toggle('hidden');
+        }
+        if (chevron) {
+            chevron.classList.toggle('rotate-90');
+        }
+    }
+
     function saveTaskComment(taskId, url) {
         const commentInput = document.getElementById('comment-' + taskId);
         const saveBtn = document.getElementById('save-comment-btn-' + taskId);
         const comment = commentInput ? commentInput.value.trim() : '';
 
         if (!comment) {
-            alert('Silakan isi komentar alasan keterlambatan terlebih dahulu.');
+            alert('Silakan tulis komentar terlebih dahulu.');
             if (commentInput) {
                 commentInput.focus();
                 commentInput.classList.add('border-rose-500', 'ring-1', 'ring-rose-500');

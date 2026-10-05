@@ -252,7 +252,8 @@ class TaskImportExportController extends Controller
                 $kp = $mapped['kp'];
                 $kategoriSegmen = $mapped['kategori_segmen'];
                 $priority = $mapped['priority'];
-                $status = $mapped['status'];
+                $status = Task::STATUS_PENDING;
+                $rawStatus = $mapped['raw_status'] ?? null;
                 $parsedStartDate = $mapped['start_date'];
                 $parsedDueDate = $mapped['due_date'];
                 $userIdentifier = $mapped['sales_identifier'];
@@ -269,7 +270,8 @@ class TaskImportExportController extends Controller
                 $description = trim($row[9] ?? '');
                 $kp = null;
                 $kategoriSegmen = Task::SEGMEN_PUBLIK;
-                $status = Task::STATUS_IN_PROGRESS;
+                $status = Task::STATUS_PENDING;
+                $rawStatus = null;
 
                 // Skip completely empty rows
                 if (! $docNumber && ! $title && ! $rawCategory && ! $userIdentifier) {
@@ -432,9 +434,6 @@ class TaskImportExportController extends Controller
                     if ($kategoriSegmen) {
                         $updatePayload['kategori_segmen'] = $kategoriSegmen;
                     }
-                    if ($isSbuFormat && $status) {
-                        $updatePayload['status'] = $status;
-                    }
 
                     $existing->update($updatePayload);
                     $updatedCount++;
@@ -445,7 +444,7 @@ class TaskImportExportController extends Controller
             }
 
             // Insert new task
-            Task::create([
+            $newTaskPayload = [
                 'user_id' => $targetUserId,
                 'assigned_by' => Auth::id(),
                 'category' => $category,
@@ -457,11 +456,17 @@ class TaskImportExportController extends Controller
                 'kategori_segmen' => $kategoriSegmen,
                 'service_type' => $serviceType,
                 'priority' => $priority,
-                'status' => $status,
+                'status' => Task::STATUS_PENDING,
                 'start_date' => $parsedStartDate,
                 'due_date' => $parsedDueDate,
                 'sales_name' => $userIdentifier,
-            ]);
+            ];
+
+            if (! empty($rawStatus)) {
+                $newTaskPayload['submission_notes'] = "[Status Excel: {$rawStatus}]";
+            }
+
+            Task::create($newTaskPayload);
 
             $insertedCount++;
             $distribution[$targetUserName] = ($distribution[$targetUserName] ?? 0) + 1;

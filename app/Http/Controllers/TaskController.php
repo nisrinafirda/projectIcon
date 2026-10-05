@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -26,62 +27,89 @@ class TaskController extends Controller
             abort(404, 'Kategori tugas tidak valid.');
         }
 
-        $query = Task::with(['user', 'assigner']);
+        $baseQuery = Task::query();
 
         // Scope to user's tasks if not admin
         if (! $user->isAdmin()) {
-            $query->where('user_id', $user->id);
+            $baseQuery->where('user_id', $user->id);
         } elseif ($request->filled('user_id')) {
-            $query->where('user_id', $request->integer('user_id'));
+            $baseQuery->where('user_id', $request->integer('user_id'));
+        }
+
+        if ($request->filled('sales_name')) {
+            $baseQuery->where('sales_name', $request->input('sales_name'));
         }
 
         if ($category) {
-            $query->where('category', $category);
+            $baseQuery->where('category', $category);
         } elseif ($request->filled('category')) {
-            $query->where('category', $request->input('category'));
+            $baseQuery->where('category', $request->input('category'));
         }
 
         if ($request->filled('status')) {
-            $query->where('status', $request->input('status'));
-        }
-
-        if ($request->filled('priority')) {
-            $query->where('priority', $request->input('priority'));
+            $baseQuery->where('status', $request->input('status'));
         }
 
         if ($request->filled('search')) {
             $search = $request->input('search');
-            $query->where(function ($q) use ($search): void {
+            $baseQuery->where(function ($q) use ($search): void {
                 $q->where('title', 'like', "%{$search}%")
                     ->orWhere('document_number', 'like', "%{$search}%")
                     ->orWhere('customer_name', 'like', "%{$search}%")
-                    ->orWhere('service_type', 'like', "%{$search}%");
+                    ->orWhere('service_type', 'like', "%{$search}%")
+                    ->orWhere('sales_name', 'like', "%{$search}%");
             });
         }
 
         if ($request->filled('kp')) {
-            $query->where('kp', $request->input('kp'));
+            $baseQuery->where('kp', $request->input('kp'));
         }
 
         if ($request->filled('kategori_segmen')) {
-            $query->where('kategori_segmen', $request->input('kategori_segmen'));
+            $baseQuery->where('kategori_segmen', $request->input('kategori_segmen'));
         }
 
         if ($request->filled('deadline_filter')) {
             if ($request->input('deadline_filter') === 'tomorrow') {
-                $query->whereDate('due_date', now()->addDay());
+                $baseQuery->whereDate('due_date', now()->addDay());
             } elseif ($request->input('deadline_filter') === 'today') {
-                $query->whereDate('due_date', now());
+                $baseQuery->whereDate('due_date', now());
             } elseif ($request->input('deadline_filter') === 'overdue') {
-                $query->whereDate('due_date', '<', now())
+                $baseQuery->whereDate('due_date', '<', now())
                     ->where('status', '!=', Task::STATUS_APPROVED);
             }
         }
 
-        $tasks = $query->orderBy('due_date', 'asc')
-            ->orderBy('id', 'desc')
+        // Total task count matching the current filters
+        $totalTaskCount = (clone $baseQuery)->count();
+
+        // Paginate by customer groups (15 customers per page)
+        $customerGroups = (clone $baseQuery)
+            ->selectRaw('TRIM(customer_name) as customer_key, MIN(customer_name) as display_name, COUNT(*) as task_count, MIN(due_date) as nearest_deadline')
+            ->groupByRaw('TRIM(customer_name)')
+            ->orderByRaw('MIN(customer_name) ASC')
             ->paginate(15)
             ->withQueryString();
+
+        // Load tasks for customers on the current page with eager loading (2 queries total, no N+1)
+        $customerKeys = $customerGroups->pluck('customer_key')->all();
+        $groupedTasks = collect();
+        if (! empty($customerKeys)) {
+            $groupedTasks = (clone $baseQuery)
+                ->with(['user', 'assigner'])
+                ->whereIn(DB::raw('TRIM(customer_name)'), $customerKeys)
+                ->orderBy('due_date', 'asc')
+                ->orderBy('id', 'desc')
+                ->get()
+                ->groupBy(fn ($t) => trim((string) $t->customer_name));
+        }
+
+        // Sales list for admin filter dropdown
+        $salesList = Task::whereNotNull('sales_name')
+            ->where('sales_name', '!=', '')
+            ->distinct()
+            ->orderBy('sales_name')
+            ->pluck('sales_name');
 
         $employees = $user->isAdmin() ? User::where('role', 'user')->orderBy('name')->get() : collect();
 
@@ -229,7 +257,10 @@ class TaskController extends Controller
         $kategoriSegmenList = Task::kategoriSegmenList();
 
         return view('tasks.index', compact(
-            'tasks',
+            'customerGroups',
+            'groupedTasks',
+            'totalTaskCount',
+            'salesList',
             'category',
             'categories',
             'employees',
@@ -275,7 +306,7 @@ class TaskController extends Controller
             'user_id' => ['required', 'exists:users,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'service_type' => ['nullable', 'string', 'max:255'],
-            'priority' => ['required', 'string', Rule::in(['low', 'medium', 'high', 'urgent'])],
+            'priority' => ['nullable', 'string', Rule::in(['low', 'medium', 'high', 'urgent'])],
             'start_date' => ['nullable', 'date'],
             'due_date' => ['required', 'date'],
             'description' => ['nullable', 'string'],
@@ -283,6 +314,7 @@ class TaskController extends Controller
             'document_number.unique' => 'Nomor dokumen ini sudah terdaftar pada kategori tersebut. Mohon gunakan nomor unik.',
         ]);
 
+        $validated['priority'] = $validated['priority'] ?? 'medium';
         $validated['assigned_by'] = Auth::id();
         $validated['status'] = Task::STATUS_IN_PROGRESS;
 
@@ -343,7 +375,7 @@ class TaskController extends Controller
             'user_id' => ['required', 'exists:users,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'service_type' => ['nullable', 'string', 'max:255'],
-            'priority' => ['required', 'string', Rule::in(['low', 'medium', 'high', 'urgent'])],
+            'priority' => ['nullable', 'string', Rule::in(['low', 'medium', 'high', 'urgent'])],
             'start_date' => ['nullable', 'date'],
             'due_date' => ['required', 'date'],
             'description' => ['nullable', 'string'],
@@ -351,6 +383,7 @@ class TaskController extends Controller
             'document_number.unique' => 'Nomor dokumen ini sudah digunakan pada tugas lain dalam kategori yang sama.',
         ]);
 
+        $validated['priority'] = $validated['priority'] ?? ($task->priority ?: 'medium');
         $task->update($validated);
 
         return redirect()->route('tasks.show', $task)

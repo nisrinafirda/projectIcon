@@ -44,7 +44,7 @@
                                     <div>
                                         <p class="font-bold text-slate-900">{{ $u->name }}</p>
                                         <p class="text-[11px] text-slate-500 font-mono">
-                                            <span class="text-blue-600 font-semibold">@{{ $u->username ?: '-' }}</span>
+                                            <span class="text-blue-600 font-semibold">@{{ {{ $u->username ?: '-' }} ?: '-' }}</span>
                                             {{ $u->nip ? '• NIP: '.$u->nip : '' }}
                                             {{ $u->email ? '• '.$u->email : '' }}
                                         </p>
