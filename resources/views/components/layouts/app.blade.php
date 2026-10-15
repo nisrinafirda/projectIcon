@@ -1,10 +1,24 @@
 <!DOCTYPE html>
-<html lang="id" class="h-full bg-slate-50">
+<html lang="id" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'ICON Portal' }} — Monitoring Tugas Karyawan</title>
+
+    <!-- Anti-flicker Theme Script: Set data-theme SEBELUM DOM dirender -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -12,7 +26,7 @@
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="h-full text-slate-800 antialiased flex">
+<body class="h-full bg-[var(--bg)] text-[var(--text)] antialiased flex transition-colors duration-200">
 
     <!-- Mobile Sidebar Backdrop -->
     <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 hidden lg:hidden" onclick="toggleSidebar()"></div>
@@ -20,20 +34,18 @@
     <!-- Sidebar (Theme: Vibrant ICON Blue) -->
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-blue-950 via-slate-900 to-blue-950 text-white flex flex-col transition-transform duration-300 -translate-x-full lg:translate-x-0 lg:static lg:inset-auto">
         <!-- Brand Header -->
-        <div class="p-5 flex items-center justify-between border-b border-blue-900/60">
+        <div class="p-4 sm:p-5 flex items-center justify-between bg-[var(--surface)] border-b border-[var(--border)] relative transition-colors duration-200">
             <a href="{{ route('dashboard') }}" class="flex items-center gap-3 group">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center font-black text-xl shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform">
-                    ⚡
-                </div>
+                <img src="{{ asset('images/logo-pln.png') }}" alt="Logo ICON" class="h-10 sm:h-11 w-auto max-w-[120px] object-contain group-hover:scale-105 transition-transform">
                 <div>
                     <div class="flex items-center gap-1.5">
-                        <span class="font-extrabold text-xl tracking-tight text-white">ICON</span>
-                        <span class="text-xs px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">PORTAL</span>
+                        <span class="font-extrabold text-xl tracking-tight text-[var(--text)]">ICON</span>
+                        <span class="text-xs px-1.5 py-0.5 rounded-md bg-[var(--primary)] text-white font-semibold">PORTAL</span>
                     </div>
-                    <p class="text-[11px] text-blue-300/70 font-medium">Task Monitoring System</p>
+                    <p class="text-[11px] text-[var(--text-muted)] font-medium">Task Monitoring System</p>
                 </div>
             </a>
-            <button type="button" class="lg:hidden text-slate-400 hover:text-white" onclick="toggleSidebar()">
+            <button type="button" class="lg:hidden text-[var(--text-muted)] hover:text-[var(--text)] transition-colors p-1" onclick="toggleSidebar()">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
@@ -64,7 +76,7 @@
                         @endif
                     </a>
                     @endif
-                    <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('tasks.index') && !request()->route('category') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ (request()->routeIs('tasks.index', 'tasks.customer') && !request()->route('category')) ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <svg class="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                         Semua Tugas
                     </a>
@@ -85,7 +97,7 @@
                 </div>
                 <nav class="space-y-1">
                     <!-- SO Open -->
-                    <a href="{{ route('tasks.category', 'sso_open') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/sso_open') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.category', 'sso_open') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/sso_open*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
                             <span>SO Open</span>
@@ -96,7 +108,7 @@
                     </a>
 
                     <!-- BAA -->
-                    <a href="{{ route('tasks.category', 'baa') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/baa') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.category', 'baa') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/baa*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-amber-400"></span>
                             <span>BAA</span>
@@ -107,7 +119,7 @@
                     </a>
 
                     <!-- BAI -->
-                    <a href="{{ route('tasks.category', 'bai') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/bai') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.category', 'bai') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/bai*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
                             <span>BAI</span>
@@ -118,7 +130,7 @@
                     </a>
 
                     <!-- EXCEPTION -->
-                    <a href="{{ route('tasks.category', 'exception') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/exception') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.category', 'exception') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ (request()->is('tasks/category/exception*') || request()->is('tasks/exception*')) ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
                             <span>EXCEPTION</span>
@@ -129,7 +141,7 @@
                     </a>
 
                     <!-- KONTRAK EXP -->
-                    <a href="{{ route('tasks.category', 'kontrak_exp') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/kontrak_exp') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <a href="{{ route('tasks.category', 'kontrak_exp') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/kontrak_exp*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <div class="flex items-center gap-3">
                             <span class="w-2 h-2 rounded-full bg-purple-400"></span>
                             <span>Kontrak Exp</span>
@@ -161,14 +173,10 @@
             <!-- Quick Export -->
             <div>
                 <p class="px-3 text-[11px] font-semibold text-blue-400/80 uppercase tracking-wider mb-2">Laporan & Ekspor</p>
-                <div class="grid grid-cols-2 gap-2 px-1">
+                <div class="px-1">
                     <a href="{{ route('tasks.export.excel') }}" class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 text-xs font-semibold border border-emerald-500/30 transition-all shadow-xs">
                         <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                        <span>Excel</span>
-                    </a>
-                    <a href="{{ route('tasks.export.pdf') }}" class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 text-xs font-semibold border border-rose-500/30 transition-all shadow-xs">
-                        <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                        <span>PDF</span>
+                        <span>Unduh Excel (.xlsx)</span>
                     </a>
                 </div>
             </div>
@@ -207,33 +215,48 @@
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
         <!-- Top Navbar -->
-        <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+        <header class="bg-[var(--surface)] border-b border-[var(--border)] sticky top-0 z-30 shadow-xs transition-colors duration-200">
             <div class="px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
                 <div class="flex items-center gap-3">
-                    <button type="button" class="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100" onclick="toggleSidebar()">
+                    <button type="button" class="lg:hidden p-2 rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] transition-colors" onclick="toggleSidebar()">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
                     </button>
                     <div>
-                        <h1 class="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        <h1 class="text-lg font-bold text-[var(--text)] tracking-tight flex items-center gap-2">
                             {{ $pageHeading ?? 'Portal Monitoring ICON' }}
                         </h1>
                     </div>
                 </div>
 
                 <!-- Right Header Actions -->
-                <div class="flex items-center gap-3">
-                    <div class="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+                <div class="flex items-center gap-2.5">
+                    <!-- Date Pill -->
+                    <div class="hidden sm:flex items-center gap-2 text-xs font-medium text-[var(--text-muted)] bg-[var(--surface-2)] px-3 py-1.5 rounded-full border border-[var(--border)]">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         <span>{{ now()->translatedFormat('l, d F Y') }}</span>
                     </div>
 
-                    <a href="{{ route('password.edit') }}" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 text-xs font-semibold transition-all" title="Ganti Kata Sandi">
-                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                    <!-- Dark Mode Toggle Button (TAHAP 3) -->
+                    <button type="button" onclick="toggleTheme()" id="themeToggleBtn"
+                        class="p-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)] transition-all shadow-xs cursor-pointer"
+                        title="Ganti Mode Terang / Gelap" aria-label="Toggle tema gelap/terang">
+                        <!-- Sun Icon (Tampil di Mode Gelap) -->
+                        <svg id="themeIconSun" class="w-4 h-4 text-amber-400 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
+                        <!-- Moon Icon (Tampil di Mode Terang) -->
+                        <svg id="themeIconMoon" class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                        </svg>
+                    </button>
+
+                    <a href="{{ route('password.edit') }}" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:text-blue-600 hover:border-blue-300 text-xs font-semibold transition-all shadow-xs" title="Ganti Kata Sandi">
+                        <svg class="w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
                         <span class="hidden md:inline">Ganti Password</span>
                     </a>
 
                     @if(auth()->user()->isAdmin())
-                    <a href="{{ route('tasks.create') }}" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm shadow-blue-500/20 transition-colors">
+                    <a href="{{ route('tasks.create') }}" class="theme-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                         <span>Tugas Baru</span>
                     </a>
@@ -242,10 +265,10 @@
             </div>
         </header>
 
-        <!-- Flash Messages -->
+        <!-- Flash Messages & Main Slot -->
         <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
             @if(session('success'))
-            <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-start gap-3 shadow-xs">
+            <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-start gap-3 shadow-xs">
                 <svg class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <div class="flex-1 text-sm font-medium">
                     {{ session('success') }}
@@ -254,24 +277,24 @@
             @endif
 
             @if(session('import_warnings') && count(session('import_warnings')) > 0)
-            <div class="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-950 flex items-start gap-3 shadow-xs">
-                <div class="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 text-base font-bold">
+            <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-950 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 text-base font-bold">
                     ⚠️
                 </div>
                 <div class="flex-1 text-xs">
-                    <h4 class="font-bold text-amber-900 text-sm mb-1">
+                    <h4 class="font-bold text-amber-900 dark:text-amber-200 text-sm mb-1">
                         Perlu Konfirmasi Penugasan Karyawan ({{ count(session('import_warnings')) }} Baris)
                     </h4>
-                    <p class="text-amber-800/90 mb-2">
+                    <p class="text-amber-800/90 dark:text-amber-300/90 mb-2">
                         Beberapa nama PIC/Sales di file Excel memiliki kemiripan 70%–89% dengan karyawan terdaftar sehingga tidak di-assign otomatis demi keamanan data:
                     </p>
-                    <ul class="space-y-1.5 list-disc list-inside bg-white/70 p-3 rounded-xl border border-amber-200/60 font-mono text-[11px] text-amber-900">
+                    <ul class="space-y-1.5 list-disc list-inside bg-[var(--surface-2)] p-3 rounded-xl border border-[var(--border)] font-mono text-[11px] text-[var(--text)]">
                         @foreach(session('import_warnings') as $warn)
                             <li>{{ $warn }}</li>
                         @endforeach
                     </ul>
                     <div class="mt-2.5 flex items-center gap-3">
-                        <a href="{{ route('admin.users.index') }}" class="inline-flex items-center gap-1 font-bold text-amber-900 underline hover:text-amber-950">
+                        <a href="{{ route('admin.users.index') }}" class="inline-flex items-center gap-1 font-bold text-amber-700 dark:text-amber-300 underline hover:text-amber-900">
                             Buka Kelola Karyawan &rarr;
                         </a>
                     </div>
@@ -280,11 +303,11 @@
             @endif
 
             @if($errors->any())
-            <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start gap-3 shadow-xs">
+            <div class="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 flex items-start gap-3 shadow-xs">
                 <svg class="w-5 h-5 text-rose-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <div class="flex-1 text-sm">
                     <p class="font-semibold mb-1">Terdapat beberapa catatan:</p>
-                    <ul class="list-disc list-inside space-y-0.5 text-xs text-rose-700">
+                    <ul class="list-disc list-inside space-y-0.5 text-xs text-rose-700 dark:text-rose-300">
                         @foreach($errors->all() as $error)
                             <li>{{ $error }}</li>
                         @endforeach
@@ -297,6 +320,7 @@
         </main>
     </div>
 
+    <!-- Scripts: Sidebar Toggle & Dark Mode Theme Switcher -->
     <script>
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -304,8 +328,33 @@
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
         }
+
+        function updateThemeIcons() {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const sun = document.getElementById('themeIconSun');
+            const moon = document.getElementById('themeIconMoon');
+            if (sun && moon) {
+                if (isDark) {
+                    sun.classList.remove('hidden');
+                    moon.classList.add('hidden');
+                } else {
+                    sun.classList.add('hidden');
+                    moon.classList.remove('hidden');
+                }
+            }
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeIcons();
+            window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: next } }));
+        }
+
+        document.addEventListener('DOMContentLoaded', updateThemeIcons);
     </script>
     @stack('scripts')
 </body>
 </html>
-

@@ -66,13 +66,8 @@ class AdminUserController extends Controller
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-
             'username' => ['required', 'string', 'max:50', Rule::unique('users', 'username')->ignore($user->id)],
-            'email' => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'nip' => ['nullable', 'string', 'max:50', Rule::unique('users', 'nip')->ignore($user->id)],
             'role' => ['required', Rule::in(['admin', 'user'])],
-            'department' => ['nullable', 'string', 'max:100'],
-            'phone' => ['nullable', 'string', 'max:20'],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
         ], [
             'password.confirmed' => 'Konfirmasi kata sandi tidak cocok dengan kata sandi baru.',

@@ -4,7 +4,316 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
+/* ==========================================================================
+   TAHAP 1: DESIGN TOKENS (LIGHT & DARK MODE)
+   ========================================================================== */
+
+:root {
+    /* Base Color Tokens - Mode Terang (Mengikuti Login) */
+    --bg: #eaf2ff;
+    --surface: #ffffff;
+    --surface-2: #f0f4f9;
+    --surface-3: #e2e8f0;
+    --border: #dbeafe;
+    --border-subtle: #f1f5f9;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --primary: #1d4ed8;
+    --primary-hover: #1e3a8a;
+    --primary-soft: #e0ecff;
+    --shadow: 0 10px 25px -5px rgba(29, 78, 216, 0.05), 0 8px 10px -6px rgba(29, 78, 216, 0.03);
+
+    /* Status Badges - Light Mode */
+    --badge-open-bg: #dbeafe;
+    --badge-open-text: #1d4ed8;
+    --badge-open-border: #bfdbfe;
+
+    --badge-success-bg: #dcfce7;
+    --badge-success-text: #15803d;
+    --badge-success-border: #bbf7d0;
+
+    --badge-warning-bg: #fef3c7;
+    --badge-warning-text: #b45309;
+    --badge-warning-border: #fde68a;
+
+    --badge-danger-bg: #fee2e2;
+    --badge-danger-text: #b91c1c;
+    --badge-danger-border: #fecaca;
+
+    --badge-purple-bg: #f3e8ff;
+    --badge-purple-text: #7e22ce;
+    --badge-purple-border: #e9d5ff;
+
+    --badge-cyan-bg: #cffafe;
+    --badge-cyan-text: #0e7490;
+    --badge-cyan-border: #a5f3fc;
+}
+
+[data-theme="dark"] {
+    /* Base Color Tokens - Mode Gelap */
+    --bg: #0b1220;
+    --surface: #111a2e;
+    --surface-2: #17223a;
+    --surface-3: #1e2c4a;
+    --border: #223049;
+    --border-subtle: #19243b;
+    --text: #e5edff;
+    --text-muted: #94a3b8;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-soft: rgba(59, 130, 246, 0.15);
+    --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+
+    /* Status Badges - Dark Mode (WCAG AA Contrast) */
+    --badge-open-bg: rgba(59, 130, 246, 0.18);
+    --badge-open-text: #93c5fd;
+    --badge-open-border: rgba(59, 130, 246, 0.35);
+
+    --badge-success-bg: rgba(34, 197, 94, 0.18);
+    --badge-success-text: #86efac;
+    --badge-success-border: rgba(34, 197, 94, 0.35);
+
+    --badge-warning-bg: rgba(245, 158, 11, 0.18);
+    --badge-warning-text: #fde047;
+    --badge-warning-border: rgba(245, 158, 11, 0.35);
+
+    --badge-danger-bg: rgba(239, 68, 68, 0.18);
+    --badge-danger-text: #fca5a5;
+    --badge-danger-border: rgba(239, 68, 68, 0.35);
+
+    --badge-purple-bg: rgba(168, 85, 247, 0.18);
+    --badge-purple-text: #d8b4fe;
+    --badge-purple-border: rgba(168, 85, 247, 0.35);
+
+    --badge-cyan-bg: rgba(6, 182, 212, 0.18);
+    --badge-cyan-text: #67e8f9;
+    --badge-cyan-border: rgba(6, 182, 212, 0.35);
+}
+
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --color-bg-app: var(--bg);
+    --color-surface-app: var(--surface);
+    --color-surface-2-app: var(--surface-2);
+    --color-surface-3-app: var(--surface-3);
+    --color-border-app: var(--border);
+    --color-border-subtle-app: var(--border-subtle);
+    --color-text-app: var(--text);
+    --color-text-muted-app: var(--text-muted);
+    --color-primary-app: var(--primary);
+    --color-primary-hover-app: var(--primary-hover);
+    --color-primary-soft-app: var(--primary-soft);
+}
+
+/* Base Body Styles */
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ==========================================================================
+   TAHAP 2: REUSABLE THEME COMPONENT STYLES
+   ========================================================================== */
+
+/* Cards, Panels & Modals */
+.theme-card {
+    background-color: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: var(--shadow);
+    color: var(--text);
+    border-radius: 1.25rem;
+}
+
+.theme-surface {
+    background-color: var(--surface) !important;
+    color: var(--text);
+}
+
+.theme-surface-2 {
+    background-color: var(--surface-2) !important;
+    color: var(--text);
+}
+
+.theme-border {
+    border-color: var(--border) !important;
+}
+
+.theme-text {
+    color: var(--text) !important;
+}
+
+.theme-text-muted {
+    color: var(--text-muted) !important;
+}
+
+/* Form Inputs, Selects & Textareas */
+.theme-input {
+    background-color: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+.theme-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.theme-input:focus {
+    background-color: var(--surface) !important;
+    border-color: var(--primary) !important;
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
+/* Buttons */
+.theme-btn-primary {
+    background: linear-gradient(to right, var(--primary-hover), var(--primary)) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(29, 78, 216, 0.25);
+    border-radius: 0.75rem;
+    font-weight: 700;
+    transition: all 0.2s ease;
+}
+
+.theme-btn-primary:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 6px 20px rgba(29, 78, 216, 0.35);
+}
+
+.theme-btn-secondary {
+    background-color: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.theme-btn-secondary:hover {
+    background-color: var(--surface) !important;
+    color: var(--primary) !important;
+}
+
+/* Table Enhancements */
+.theme-table thead {
+    background-color: var(--surface-2) !important;
+    color: var(--text-muted) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.theme-table tbody tr {
+    background-color: var(--surface);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text);
+}
+
+.theme-table tbody tr:hover {
+    background-color: var(--surface-2) !important;
+}
+
+/* Automatic Dark Mode Fallback Overrides for Existing Utility Classes */
+[data-theme="dark"] {
+    .bg-white {
+        background-color: var(--surface) !important;
+        color: var(--text);
+    }
+
+    .bg-slate-50, .bg-slate-100 {
+        background-color: var(--surface-2) !important;
+    }
+
+    .bg-slate-200 {
+        background-color: var(--surface-3) !important;
+    }
+
+    .border-slate-100, .border-slate-200, .border-slate-200\/80, .border-slate-300 {
+        border-color: var(--border) !important;
+    }
+
+    .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+    .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+        border-color: var(--border) !important;
+    }
+
+    .text-slate-900, .text-slate-800, .text-slate-700 {
+        color: var(--text) !important;
+    }
+
+    .text-slate-600, .text-slate-500, .text-slate-400 {
+        color: var(--text-muted) !important;
+    }
+
+    /* Table & Accordion Row Hovers in Dark Mode */
+    .hover\:bg-blue-50\/40:hover,
+    .hover\:bg-blue-50\/30:hover,
+    .hover\:bg-slate-50\/80:hover,
+    .hover\:bg-slate-50:hover {
+        background-color: rgba(59, 130, 246, 0.12) !important;
+    }
+
+    .bg-slate-50\/70, .bg-slate-50\/80, .bg-slate-100\/70 {
+        background-color: var(--surface-2) !important;
+    }
+
+    /* Soft Alert Box Overrides in Dark Mode for High Contrast */
+    .bg-amber-50 {
+        background-color: rgba(245, 158, 11, 0.15) !important;
+        border-color: rgba(245, 158, 11, 0.3) !important;
+        color: #fde047 !important;
+    }
+    .bg-amber-100 {
+        background-color: rgba(245, 158, 11, 0.25) !important;
+        color: #fef08a !important;
+    }
+    .text-amber-900, .text-amber-800, .text-amber-700 {
+        color: #fde047 !important;
+    }
+
+    .bg-emerald-50 {
+        background-color: rgba(34, 197, 94, 0.15) !important;
+        border-color: rgba(34, 197, 94, 0.3) !important;
+        color: #86efac !important;
+    }
+    .text-emerald-900, .text-emerald-800, .text-emerald-700 {
+        color: #86efac !important;
+    }
+
+    .bg-rose-50 {
+        background-color: rgba(239, 68, 68, 0.15) !important;
+        border-color: rgba(239, 68, 68, 0.3) !important;
+        color: #fca5a5 !important;
+    }
+    .text-rose-900, .text-rose-800, .text-rose-700 {
+        color: #fca5a5 !important;
+    }
+
+    .bg-blue-50 {
+        background-color: rgba(59, 130, 246, 0.15) !important;
+        border-color: rgba(59, 130, 246, 0.3) !important;
+        color: #93c5fd !important;
+    }
+    .text-blue-900, .text-blue-800, .text-blue-700 {
+        color: #93c5fd !important;
+    }
+
+    .bg-purple-50 {
+        background-color: rgba(168, 85, 247, 0.15) !important;
+        border-color: rgba(168, 85, 247, 0.3) !important;
+        color: #d8b4fe !important;
+    }
+    .text-purple-900, .text-purple-800, .text-purple-700 {
+        color: #d8b4fe !important;
+    }
+
+    /* Modal dialogs */
+    .dialog, [role="dialog"] {
+        background-color: var(--surface) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+    }
 }

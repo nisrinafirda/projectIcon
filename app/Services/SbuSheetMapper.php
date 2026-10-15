@@ -22,6 +22,7 @@ class SbuSheetMapper
      */
     private const HEADER_PATTERNS = [
         'document_number' => ['id pa', 'idpa', 'id pelanggan', 'sid'],
+        'tanggal_komitmen' => ['tanggal komitmen close', 'komitmen close'],
         'row_number' => ['no'],
         'customer_name' => ['nama pelanggan', 'namapelanggan'],
         'service_type' => ['layanan produk', 'layananproduk', 'layanan'],
@@ -30,25 +31,26 @@ class SbuSheetMapper
         'selisih' => ['selisih'],
         'kategori_segmen' => ['kategori customer', 'kategori'],
         'kp' => ['kp'],
-        'sub_bidang' => ['sub bidang', 'subbidang', 'subbidangrevenue', 'bidangrevenue'],
+        'sub_bidang' => ['sub bidang', 'subbidang', 'subbidangrevenue'],
         'sales' => ['sales'],
         'status' => ['status'],
-        'kendala' => ['kendala'],
-        'konfirmasi' => ['konfirmasi'],
+        'kendala' => ['kendala pdl', 'kendala'],
+        'konfirmasi' => ['confirm to ppb', 'confirm to', 'konfirmasi'],
         'alasan' => ['alasan'],
         'keterangan' => ['keterangan'],
-        'support' => ['support'],
+        'support' => ['suport dari ppb', 'support dari ppb', 'support'],
         'nomor_kontrak' => ['nomor kontrak'],
         'target_days' => ['target bai', 'target'],
         'aging_days' => ['aging'],
         'tanggal_aging' => ['tanggal aging'],
         'tanggal_upload' => ['tanggal upload', 'tanggalupload'],
-        'tgl_target_aktivasi' => ['tgl target aktivasi', 'target aktivasi'],
-        'diterbitkan_tanggal' => ['diterbitkan tanggal', 'diterbitkan'],
+        'tgl_target_aktivasi' => ['tgl target aktivasi', 'target aktivasi', 'tanggal eksekusi'],
+        'diterbitkan_tanggal' => ['diterbitkan tanggal', 'diterbitkan', 'tanggal pa terbit', 'pa terbit'],
         'tanggal_kontrak_berakhir' => ['tanggal kontrak berakhir', 'kontrak berakhir'],
         'tanggal_kontrak_lama' => ['tanggal kontrak lama', 'kontrak lama'],
         'sum_rf_layanan' => ['sum of rf layanan', 'rf layanan'],
         'sum_rf_install' => ['sum of rf install', 'rf install'],
+        'rp_exception' => ['rpexception', 'rp exception'],
     ];
 
     /**
@@ -87,6 +89,87 @@ class SbuSheetMapper
         }
 
         return 'template';
+    }
+
+    /**
+     * Detect the specific task category from SBU sheet headers along with matching markers.
+     *
+     * @param  list<mixed>  $headerRow
+     * @return array{category: ?string, markers: list<string>}
+     */
+    public function detectCategoryWithMarkers(array $headerRow): array
+    {
+        $normalizedMap = [];
+        foreach ($headerRow as $rawHeader) {
+            $rawStr = trim((string) ($rawHeader ?? ''));
+            if ($rawStr !== '') {
+                $normalizedMap[$rawStr] = $this->normalizeHeader($rawStr);
+            }
+        }
+
+        $findMatchingHeaders = function (string ...$keywords) use ($normalizedMap): array {
+            $matched = [];
+            foreach ($normalizedMap as $orig => $norm) {
+                foreach ($keywords as $kw) {
+                    if (str_contains($norm, $kw)) {
+                        $matched[] = $orig;
+                        break;
+                    }
+                }
+            }
+
+            return $matched;
+        };
+
+        // 1. Exception indicators
+        $excMatches = $findMatchingHeaders('rpexception', 'rp exception', 'alasanexception', 'alasan exception', 'petugasexception', 'tanggalexception');
+        if (! empty($excMatches)) {
+            return ['category' => Task::CATEGORY_EXCEPTION, 'markers' => $excMatches];
+        }
+
+        // 2. SSO Open indicators (PDL & PPB)
+        $ssoMatches = $findMatchingHeaders('so open', 'sso open', 'sso', 'kendala pdl', 'confirm to ppb', 'suport dari ppb', 'setting sla', 'setting kontrak');
+        if (! empty($ssoMatches)) {
+            return ['category' => Task::CATEGORY_SSO_OPEN, 'markers' => $ssoMatches];
+        }
+
+        // 3. Contract Expired indicators
+        $kontrakMatches = $findMatchingHeaders('nomor kontrak baru', 'nomor kontrak lama', 'kontrak berakhir', 'kontrak lama', 'thbl tagihan', 'tipe revenue', 'nomor kontrak');
+        if (! empty($kontrakMatches)) {
+            return ['category' => Task::CATEGORY_KONTRAK_EXP, 'markers' => $kontrakMatches];
+        }
+
+        // 4. BAA vs BAI distinction
+        $baaMatches = $findMatchingHeaders('upload baa', 'aging baa', 'baa');
+        $uploadBaiMatches = $findMatchingHeaders('upload bai', 'tanggal upload bai');
+        $targetBaiMatches = $findMatchingHeaders('target bai');
+
+        // Explicit BAA headers (e.g. Aging BAA, Tanggal Upload BAA)
+        if (! empty($baaMatches)) {
+            return ['category' => Task::CATEGORY_BAA, 'markers' => array_values(array_unique(array_merge($baaMatches, $uploadBaiMatches)))];
+        }
+
+        // BAI header without BAA markers (Target BAI)
+        if (! empty($targetBaiMatches)) {
+            return ['category' => Task::CATEGORY_BAI, 'markers' => $targetBaiMatches];
+        }
+
+        // Upload BAI without Target BAI is typically BAA tracking
+        if (! empty($uploadBaiMatches)) {
+            return ['category' => Task::CATEGORY_BAA, 'markers' => $uploadBaiMatches];
+        }
+
+        return ['category' => null, 'markers' => []];
+    }
+
+    /**
+     * Detect the specific task category from SBU sheet headers.
+     *
+     * @param  list<mixed>  $headerRow
+     */
+    public function detectCategory(array $headerRow): ?string
+    {
+        return $this->detectCategoryWithMarkers($headerRow)['category'];
     }
 
     /**
@@ -157,9 +240,24 @@ class SbuSheetMapper
             return null;
         }
 
+        // Detect SO subtype (PDL vs PPB) for SO Open
+        $soType = null;
+        if ($category === Task::CATEGORY_SSO_OPEN) {
+            $docUpper = strtoupper($docNumber);
+            $konfirmasiVal = strtolower($get('konfirmasi'));
+            if (str_starts_with($docUpper, 'B') || str_contains($konfirmasiVal, 'ppb') || str_contains($konfirmasiVal, 'pull out')) {
+                $soType = 'PPB';
+            } else {
+                $soType = 'PDL';
+            }
+        }
+
         // Build title
         $categoryLabel = Task::categories()[$category] ?? strtoupper($category);
         $title = $categoryLabel;
+        if ($soType) {
+            $title .= ' ['.$soType.']';
+        }
         if ($customerName !== '') {
             $title .= ' - '.$customerName;
         }
@@ -172,10 +270,10 @@ class SbuSheetMapper
         }
 
         // Build description from price data, kendala, alasan, konfirmasi, keterangan, support
-        $description = $this->buildDescription($row, $columnMap);
+        $description = $this->buildDescription($row, $columnMap, $soType);
 
         // Normalize KP
-        $kp = $this->normalizeKp($get('kp'));
+        $kp = $this->normalizeKp($get('kp')) ?? $this->normalizeKp($get('sub_bidang'));
 
         // Normalize kategori segmen
         $kategoriSegmen = $this->normalizeSegmen($get('kategori_segmen'));
@@ -183,6 +281,12 @@ class SbuSheetMapper
         // Normalize status
         $rawStatus = $get('status');
         $status = $this->normalizeStatus($rawStatus);
+
+        // Parse rp_exception
+        $rpException = $this->parseRpException($get('rp_exception'));
+
+        // Parse harga_baru
+        $hargaBaru = $this->parseAccountingNumber($get('harga_baru'));
 
         // Parse dates
         $dates = $this->parseDates($row, $columnMap);
@@ -199,10 +303,55 @@ class SbuSheetMapper
             'priority' => 'medium',
             'status' => $status,
             'raw_status' => $rawStatus !== '' ? $rawStatus : null,
+            'rp_exception' => $rpException,
+            'harga_baru' => $hargaBaru,
             'start_date' => $dates['start_date'],
             'due_date' => $dates['due_date'],
             'sales_identifier' => $sales, // for user matching in controller
         ];
+    }
+
+    /**
+     * Parse accounting currency number into numeric float.
+     */
+    public function parseAccountingNumber(string $value): float
+    {
+        $clean = trim($value);
+        if ($clean === '' || $clean === '-' || $clean === '0') {
+            return 0.0;
+        }
+
+        $clean = trim($clean, "\"' \t\n\r\0\x0B");
+
+        if (str_contains($clean, '.') && str_contains($clean, ',')) {
+            $lastDot = strrpos($clean, '.');
+            $lastComma = strrpos($clean, ',');
+            if ($lastDot > $lastComma) {
+                $clean = str_replace([',', ' '], '', $clean);
+            } else {
+                $clean = str_replace(['.', ' '], '', $clean);
+                $clean = str_replace(',', '.', $clean);
+            }
+        } elseif (str_contains($clean, ',')) {
+            if (substr_count($clean, ',') > 1 || preg_match('/,\d{3}$/', $clean)) {
+                $clean = str_replace([',', ' '], '', $clean);
+            } else {
+                $clean = str_replace(' ', '', $clean);
+                $clean = str_replace(',', '.', $clean);
+            }
+        } else {
+            $clean = str_replace(' ', '', $clean);
+        }
+
+        return is_numeric($clean) ? (float) $clean : 0.0;
+    }
+
+    /**
+     * Parse rp_exception accounting value into numeric float.
+     */
+    public function parseRpException(string $value): float
+    {
+        return $this->parseAccountingNumber($value);
     }
 
     /**
@@ -264,6 +413,7 @@ class SbuSheetMapper
             str_contains($lower, 'deaktivasi') => Task::STATUS_APPROVED,
             str_contains($lower, 'pelanggan') => Task::STATUS_IN_PROGRESS,
             str_contains($lower, 'proses') => Task::STATUS_IN_PROGRESS,
+            str_contains($lower, 'close') => Task::STATUS_APPROVED,
             default => Task::STATUS_IN_PROGRESS,
         };
     }
@@ -274,11 +424,15 @@ class SbuSheetMapper
      * @param  list<mixed>  $row
      * @param  ColumnMap  $columnMap
      */
-    private function buildDescription(array $row, array $columnMap): string
+    private function buildDescription(array $row, array $columnMap, ?string $soType = null): string
     {
         $get = fn (string $field): string => trim((string) ($row[$columnMap[$field] ?? -1] ?? ''));
 
         $parts = [];
+
+        if ($soType) {
+            $parts[] = 'Tipe SO: '.$soType;
+        }
 
         // Price info
         $hargaLama = $get('harga_lama');
@@ -378,7 +532,7 @@ class SbuSheetMapper
         }
 
         // Try to find due_date from various columns (priority order)
-        $dueCandidates = ['tgl_target_aktivasi', 'tanggal_kontrak_berakhir'];
+        $dueCandidates = ['tanggal_komitmen', 'tgl_target_aktivasi', 'tanggal_kontrak_berakhir'];
         foreach ($dueCandidates as $field) {
             // Don't reuse the same column already used for start_date
             if ($field === 'tgl_target_aktivasi' && $startDate !== null && $columnMap['tanggal_aging'] === null && $columnMap['tanggal_upload'] === null && $columnMap['diterbitkan_tanggal'] === null) {

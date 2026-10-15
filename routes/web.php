@@ -6,6 +6,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TaskImportExportController;
+use App\Http\Controllers\WhatsAppReportController;
 use Illuminate\Support\Facades\Route;
 
 // Guest Routes
@@ -34,7 +35,12 @@ Route::middleware('auth')->group(function (): void {
 
     // Export Routes
     Route::get('/tasks/export/excel', [TaskImportExportController::class, 'exportExcel'])->name('tasks.export.excel');
-    Route::get('/tasks/export/pdf', [TaskImportExportController::class, 'exportPdf'])->name('tasks.export.pdf');
+
+    // Exception Customer Detail Page
+    Route::get('/tasks/category/exception/customer/{customer}', [TaskController::class, 'exceptionCustomerDetail'])->name('tasks.exception.customer');
+
+    // Customer Detail Page per Category (SO Open, BAA, BAI, Kontrak Exp)
+    Route::get('/tasks/category/{category}/customer/{customer}', [TaskController::class, 'categoryCustomerDetail'])->name('tasks.category.customer');
 
     // Category Quick Links (SSO Open, BAA, BAI, Exception, Kontrak Exp)
     Route::get('/tasks/category/{category}', [TaskController::class, 'index'])->name('tasks.category');
@@ -72,9 +78,14 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/admin/users', [AdminUserController::class, 'store'])->name('admin.users.store');
         Route::put('/admin/users/{user}', [AdminUserController::class, 'update'])->name('admin.users.update');
         Route::delete('/admin/users/{user}', [AdminUserController::class, 'destroy'])->name('admin.users.destroy');
+
+        // Laporan Update WhatsApp
+        Route::get('/admin/report/whatsapp', [WhatsAppReportController::class, 'show'])->name('admin.report.whatsapp');
+        Route::post('/admin/report/whatsapp/settings', [WhatsAppReportController::class, 'updateSettings'])->name('admin.report.whatsapp.settings');
     });
 
     // General Task List & Show (placed after specific routes to avoid conflict)
+    Route::get('/tasks/customer/{customer}', [TaskController::class, 'customerDetail'])->name('tasks.customer');
     Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
     Route::get('/tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
 });

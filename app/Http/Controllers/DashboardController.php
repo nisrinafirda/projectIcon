@@ -117,15 +117,87 @@ class DashboardController extends Controller
             ],
         ];
 
-        // 6b. Chart Data: Kantor Perwakilan (KP)
-        $kpChartData = [
-            'labels' => ['Surabaya', 'Malang', 'Madiun', 'Jember'],
-            'data' => [
-                Task::where('kp', 'surabaya')->count(),
-                Task::where('kp', 'malang')->count(),
-                Task::where('kp', 'madiun')->count(),
-                Task::where('kp', 'jember')->count(),
+        // 6b. Kantor Perwakilan (KP) Aggregation & Chart Data
+        $kpList = Task::kpList();
+        $kpColors = [
+            Task::KP_SURABAYA => '#3B82F6',
+            Task::KP_MALANG => '#8B5CF6',
+            Task::KP_MADIUN => '#F59E0B',
+            Task::KP_JEMBER => '#10B981',
+        ];
+
+        // Sidebar category order and dot colors
+        $categoryConfig = [
+            Task::CATEGORY_SSO_OPEN => [
+                'label' => 'SO Open',
+                'dot_color' => 'bg-cyan-400',
             ],
+            Task::CATEGORY_BAA => [
+                'label' => 'BAA',
+                'dot_color' => 'bg-amber-400',
+            ],
+            Task::CATEGORY_BAI => [
+                'label' => 'BAI',
+                'dot_color' => 'bg-emerald-400',
+            ],
+            Task::CATEGORY_EXCEPTION => [
+                'label' => 'EXCEPTION',
+                'dot_color' => 'bg-rose-400',
+            ],
+            Task::CATEGORY_KONTRAK_EXP => [
+                'label' => 'Kontrak Exp',
+                'dot_color' => 'bg-purple-400',
+            ],
+        ];
+
+        // Aggregation query: groupBy KP and category + count
+        $kpAggregations = Task::selectRaw('LOWER(kp) as kp_slug, category, count(*) as total')
+            ->whereNotNull('kp')
+            ->groupBy('kp_slug', 'category')
+            ->get();
+
+        $countsByKpAndCat = [];
+        foreach ($kpAggregations as $row) {
+            $countsByKpAndCat[$row->kp_slug][$row->category] = (int) $row->total;
+        }
+
+        $kpCardsData = [];
+        $kpChartLabels = [];
+        $kpChartCounts = [];
+
+        foreach ($kpList as $kpKey => $kpName) {
+            $kpKeyLower = strtolower($kpKey);
+            $kpCatList = [];
+            $kpTotal = array_sum($countsByKpAndCat[$kpKeyLower] ?? []);
+
+            foreach ($categoryConfig as $catKey => $catMeta) {
+                $count = $countsByKpAndCat[$kpKeyLower][$catKey] ?? 0;
+                if ($count > 0) {
+                    $kpCatList[] = [
+                        'key' => $catKey,
+                        'label' => $catMeta['label'],
+                        'count' => $count,
+                        'dot_color' => $catMeta['dot_color'],
+                        'url' => route('tasks.category', ['category' => $catKey, 'kp' => $kpKeyLower]),
+                    ];
+                }
+            }
+
+            $kpCardsData[$kpKeyLower] = [
+                'key' => $kpKeyLower,
+                'name' => $kpName,
+                'color' => $kpColors[$kpKey] ?? '#3B82F6',
+                'total' => $kpTotal,
+                'categories' => $kpCatList,
+            ];
+
+            $kpChartLabels[] = $kpName;
+            $kpChartCounts[] = $kpTotal;
+        }
+
+        $kpChartData = [
+            'labels' => $kpChartLabels,
+            'data' => $kpChartCounts,
         ];
 
         return view('dashboard.admin', compact(
@@ -141,7 +213,8 @@ class DashboardController extends Controller
             'statusChartData',
             'categoryChartData',
             'kategoriChartData',
-            'kpChartData'
+            'kpChartData',
+            'kpCardsData'
         ));
     }
 

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 #[Fillable([
     'user_id',
@@ -32,11 +33,41 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'admin_notes',
     'reviewed_at',
     'comments',
+    'late_reason',
+    'was_late',
+    'done_marked_at',
+    'done_marked_by',
+    'confirmed_at',
+    'confirmed_by',
+    'rp_exception',
+    'harga_baru',
+    'mutation_id',
 ])]
 class Task extends Model
 {
     /** @use HasFactory<TaskFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::saving(function (Task $task) {
+            if ($task->category !== self::CATEGORY_EXCEPTION && $task->document_number) {
+                $huruf = strtoupper(substr(trim($task->document_number), 0, 1));
+                if (ctype_alpha($huruf)) {
+                    $task->mutation_id = Mutation::where('kode', $huruf)->value('id');
+
+                    return;
+                }
+            }
+
+            $task->mutation_id = null;
+        });
+    }
+
+    public function mutation(): BelongsTo
+    {
+        return $this->belongsTo(Mutation::class);
+    }
 
     public const CATEGORY_SSO_OPEN = 'sso_open';
 
@@ -83,7 +114,12 @@ class Task extends Model
             'start_date' => 'date',
             'due_date' => 'date',
             'completed_at' => 'datetime',
+            'done_marked_at' => 'datetime',
+            'confirmed_at' => 'datetime',
             'reviewed_at' => 'datetime',
+            'was_late' => 'boolean',
+            'rp_exception' => 'decimal:2',
+            'harga_baru' => 'decimal:2',
         ];
     }
 
@@ -155,6 +191,18 @@ class Task extends Model
     }
 
     /**
+     * Nomor Kontrak (extracted from description if available).
+     */
+    public function getNomorKontrakAttribute(): ?string
+    {
+        if ($this->description && preg_match('/No\.?\s*Kontrak\s*:\s*([^\r\n]+)/i', $this->description, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
+
+    /**
      * KP label.
      */
     public function getKpLabelAttribute(): string
@@ -180,6 +228,30 @@ class Task extends Model
         }
 
         return self::statuses()[$this->status] ?? ucfirst($this->status);
+    }
+
+    /**
+     * Get SO subtype (PDL or PPB) when task is in SO Open category.
+     */
+    public function getSoTypeAttribute(): ?string
+    {
+        if ($this->category !== self::CATEGORY_SSO_OPEN) {
+            return null;
+        }
+
+        $doc = strtoupper(trim((string) $this->document_number));
+        $title = (string) $this->title;
+        $desc = strtolower((string) $this->description);
+
+        if (str_contains($title, '[PPB]') || str_starts_with($doc, 'B') || str_contains($desc, 'tipe so: ppb') || str_contains($desc, 'confirm to: ppb') || str_contains($desc, 'pull out')) {
+            return 'PPB';
+        }
+
+        if (str_contains($title, '[PDL]') || str_starts_with($doc, 'A') || str_contains($desc, 'tipe so: pdl') || str_contains($desc, 'confirm to: pdl')) {
+            return 'PDL';
+        }
+
+        return null;
     }
 
     /**
@@ -226,6 +298,22 @@ class Task extends Model
     public function assigner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_by');
+    }
+
+    /**
+     * Relation to the user who marked the task completed.
+     */
+    public function doneMarkedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'done_marked_by');
+    }
+
+    /**
+     * Relation to the admin who confirmed the task.
+     */
+    public function confirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by');
     }
 
     /**
@@ -289,5 +377,78 @@ class Task extends Model
         return $query->where('status', '!=', self::STATUS_APPROVED)
             ->whereNotNull('due_date')
             ->whereBetween('due_date', [$today, $target]);
+    }
+
+    /**
+     * Find original customer name by URL slug and optional category.
+     */
+    public static function findCustomerBySlug(string $slug, ?string $category = null): ?string
+    {
+        $query = self::query();
+        if ($category) {
+            $query->where('category', $category);
+        }
+
+        $customers = $query
+            ->whereNotNull('customer_name')
+            ->where('customer_name', '!=', '')
+            ->selectRaw('TRIM(customer_name) as name')
+            ->distinct()
+            ->pluck('name');
+
+        foreach ($customers as $name) {
+            if (Str::slug($name) === $slug) {
+                return $name;
+            }
+        }
+
+        $decoded = urldecode($slug);
+        foreach ($customers as $name) {
+            if (strcasecmp($name, $decoded) === 0 || strcasecmp($name, $slug) === 0) {
+                return $name;
+            }
+        }
+
+        if ($slug === 'tanpa-nama-pelanggan') {
+            $hasNullOrEmpty = (clone $query)->where(function ($q): void {
+                $q->whereNull('customer_name')->orWhereRaw("TRIM(customer_name) = ''");
+            })->exists();
+            if ($hasNullOrEmpty) {
+                return '';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find original customer name for Exception category by URL slug.
+     */
+    public static function findExceptionCustomerBySlug(string $slug): ?string
+    {
+        return self::findCustomerBySlug($slug, self::CATEGORY_EXCEPTION);
+    }
+
+    /**
+     * Get 12 Indonesian calendar months as [1 => 'Januari', ..., 12 => 'Desember'].
+     *
+     * @return array<int, string>
+     */
+    public static function listMonths(): array
+    {
+        return [
+            1 => 'Januari',
+            2 => 'Februari',
+            3 => 'Maret',
+            4 => 'April',
+            5 => 'Mei',
+            6 => 'Juni',
+            7 => 'Juli',
+            8 => 'Agustus',
+            9 => 'September',
+            10 => 'Oktober',
+            11 => 'November',
+            12 => 'Desember',
+        ];
     }
 }
