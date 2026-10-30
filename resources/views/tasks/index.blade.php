@@ -10,7 +10,7 @@
                 <h2 class="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                     <span>{{ 
                     $currentCategoryLabel }}</span>
-                    <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                    <span id="task-total-badge" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
                         {{ $totalTaskCount }} Tugas • {{ $customerGroups->total() }} Pelanggan
                     </span>
                 </h2>
@@ -43,6 +43,7 @@
             </div>
         </div>
 
+        <div id="task-metrics-container">
         @if(isset($categoryMetrics) && $categoryMetrics)
         <!-- METRICS & KP BREAKDOWN SECTION (TERSEDIA UNTUK SEMUA MENU & ROLE) -->
         <div class="space-y-4">
@@ -73,7 +74,7 @@
                     </div>
                     <div>
                         <div class="text-3xl font-black text-emerald-600 tracking-tight">{{ $categoryMetrics['done'] }}</div>
-                        <p class="text-xs text-slate-400 mt-1">{{ $categoryMetrics['done_percent'] }}% dari total {{ $categoryMetrics['unit'] }}</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ $categoryMetrics['done_sub'] ?? ($categoryMetrics['done_percent'].'% dari total '.$categoryMetrics['unit']) }}</p>
                     </div>
                 </div>
 
@@ -93,7 +94,7 @@
             </div>
             @else
             <!-- Row 1: Metrik Utama Proyek -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 {{ $category === 'sso_open' ? 'lg:grid-cols-4' : 'lg:grid-cols-5' }} gap-3.5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 {{ in_array($category, ['sso_open', 'baa', 'exception']) ? 'lg:grid-cols-4' : 'lg:grid-cols-5' }} gap-3.5">
                 <!-- 1. Total Proyek / Data -->
                 <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
                     <div class="flex items-center justify-between mb-2">
@@ -122,11 +123,11 @@
                     </div>
                 </div>
 
-                @if($category !== 'sso_open')
-                <!-- 3. Net Selisih / Delta / Exception Close -->
+                @if(!in_array($category, ['sso_open', 'baa', 'exception']))
+                <!-- 3. Net Selisih / Delta -->
                 <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
                     <div class="flex items-center justify-between mb-2">
-                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{{ $category === 'exception' ? 'EXCEPTION CLOSE' : 'NET SELISIH / DELTA' }}</span>
+                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">NET SELISIH / DELTA</span>
                         <div class="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center text-sm font-bold">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
                         </div>
@@ -148,7 +149,7 @@
                     </div>
                     <div>
                         <div class="text-3xl font-black text-emerald-600 tracking-tight">{{ $categoryMetrics['done'] }}</div>
-                        <p class="text-xs text-slate-400 mt-1">{{ $categoryMetrics['done_percent'] }}% dari total {{ $categoryMetrics['unit'] }}</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ $categoryMetrics['done_sub'] ?? ($categoryMetrics['done_percent'].'% dari total '.$categoryMetrics['unit']) }}</p>
                     </div>
                 </div>
 
@@ -229,19 +230,27 @@
             </div>
         </div>
         @endif
+        </div>
 
         <!-- Filter Pills / Form -->
         <!-- Filter Pills / Form -->
         <div class="theme-card p-4 border border-[var(--border)] shadow-xs">
-            <form method="GET" action="{{ $category ? route('tasks.category', $category) : route('tasks.index') }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <form method="GET" action="{{ $category ? route('tasks.category', $category) : route('tasks.index') }}" 
+                  class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
+                  data-auto-filter="true">
                 @if(request()->filled('per_page'))
                     <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 @endif
                 <div class="sm:col-span-2 relative">
                     <input type="text" name="search" value="{{ request('search') }}"
                         placeholder="{{ $category === 'kontrak_exp' ? 'Cari no kontrak, pelanggan, ID PA...' : 'Cari ID PA, layanan, pelanggan...' }}"
-                        class="w-full pl-9 pr-4 py-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-[var(--surface)] transition-all">
-                    <svg class="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        autocomplete="off"
+                        class="w-full pl-9 pr-9 py-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-[var(--surface)] transition-all">
+                    <svg class="search-icon w-4 h-4 text-[var(--text-muted)] absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <svg class="search-spinner w-4 h-4 text-blue-500 animate-spin absolute right-3 top-2.5 hidden" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                 </div>
 
                 <!-- Status filter (Tanpa Menunggu Dikerjakan) -->
@@ -310,32 +319,35 @@
 
                 <!-- Filter Actions -->
                 <div class="flex items-center gap-2">
-                    <button type="submit" class="theme-btn-primary flex-1 py-2 px-3 text-xs font-semibold">
-                        Filter
-                    </button>
-                    @if(request()->hasAny(['search', 'status', 'deadline_filter', 'user_id', 'kp', 'kategori_segmen', 'sales_name']) || request()->filled('month') || request()->filled('year'))
-                    <a href="{{ $category ? route('tasks.category', $category) : route('tasks.index') }}" class="py-2 px-3 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)] font-semibold text-xs transition-colors">
-                        Reset
+                    <noscript>
+                        <button type="submit" class="theme-btn-primary flex-1 py-2 px-3 text-xs font-semibold cursor-pointer">
+                            Filter
+                        </button>
+                    </noscript>
+                    <a href="{{ $category ? route('tasks.category', $category) : route('tasks.index') }}" 
+                       class="w-full flex items-center justify-center py-2 px-3 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] font-semibold text-xs transition-colors shadow-2xs"
+                       title="Kosongkan semua filter">
+                        <svg class="w-3.5 h-3.5 mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset Filter
                     </a>
-                    @endif
                 </div>
             </form>
         </div>
     </div>
 
     <!-- Task Table (Grouped by Customer Accordion) -->
-    <div class="theme-card border border-[var(--border)] shadow-xs overflow-hidden">
+    <div id="task-table-container" class="theme-card border border-[var(--border)] shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left text-xs text-[var(--text)] border-collapse">
                 <thead class="bg-[var(--surface-2)] text-[var(--text-muted)] font-semibold uppercase tracking-wider text-[11px] border-b border-[var(--border)]">
                     <tr>
                         <th class="py-3.5 px-4 w-10 text-center"></th>
-                        <th class="py-3.5 px-4 {{ $category === 'kontrak_exp' ? 'w-[28%]' : ($category === 'sso_open' ? 'w-[28%]' : ($category === 'exception' ? 'w-[28%]' : 'w-[35%]')) }}">Nama Pelanggan</th>
+                        <th class="py-3.5 px-4 {{ $category === 'kontrak_exp' ? 'w-[28%]' : (in_array($category, ['sso_open', 'baa', 'exception']) ? 'w-[28%]' : 'w-[35%]') }}">Nama Pelanggan</th>
                         @if($category === 'kontrak_exp')
                         <th class="py-3.5 px-4 w-[22%]">No Kontrak</th>
                         @endif
-                        <th class="py-3.5 px-4 {{ $category === 'kontrak_exp' ? 'w-[20%]' : ($category === 'sso_open' ? 'w-[18%]' : ($category === 'exception' ? 'w-[18%]' : 'w-[25%]')) }}">Sales</th>
-                        @if($category === 'sso_open')
+                        <th class="py-3.5 px-4 {{ $category === 'kontrak_exp' ? 'w-[20%]' : (in_array($category, ['sso_open', 'baa', 'exception']) ? 'w-[18%]' : 'w-[25%]') }}">Sales</th>
+                        @if($category === 'sso_open' || $category === 'baa')
                         <th class="py-3.5 px-4 w-36 text-right">Harga Baru</th>
                         @endif
                         @if($category === 'exception')
@@ -401,8 +413,15 @@
                                     {{ $category === 'kontrak_exp' ? '📄' : '🏢' }}
                                 </div>
                                 <div>
-                                    <div class="font-extrabold text-[var(--text)] text-sm tracking-tight {{ $category === 'exception' ? 'hover:text-rose-600' : ($category === 'kontrak_exp' ? 'hover:text-purple-600' : 'hover:text-blue-600') }} transition-colors">
-                                        {{ $displayName }}
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="font-extrabold text-[var(--text)] text-sm tracking-tight {{ $category === 'exception' ? 'hover:text-rose-600' : ($category === 'kontrak_exp' ? 'hover:text-purple-600' : 'hover:text-blue-600') }} transition-colors">
+                                            {{ $displayName }}
+                                        </span>
+                                        @if(($category === 'sso_open' || !$category) && ($customerHasPpbMap[$customerKey] ?? false))
+                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800" title="Terdapat tugas PPB">
+                                                PPB
+                                            </span>
+                                        @endif
                                     </div>
                                     @if($kpLabels->isNotEmpty())
                                     <div class="text-[11px] text-[var(--text-muted)] mt-0.5">
@@ -442,6 +461,11 @@
                             Rp {{ number_format((float) ($group->total_harga_baru ?? 0), 0, ',', '.') }}
                         </td>
                         @endif
+                        @if($category === 'baa')
+                        <td class="py-4 px-4 text-right font-mono font-bold text-[var(--text)]">
+                            Rp {{ number_format((float) ($customerHargaBaruTotals[$customerKey] ?? ($group->total_harga_baru ?? 0)), 0, ',', '.') }}
+                        </td>
+                        @endif
                         @if($category === 'exception')
                         <td class="py-4 px-4 text-right font-mono font-bold text-[var(--text)]">
                             Rp {{ number_format((float) ($customerRpTotals[$customerKey] ?? ($group->total_rp_exception ?? 0)), 0, ',', '.') }}
@@ -472,7 +496,7 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="{{ in_array($category, ['kontrak_exp', 'sso_open', 'exception']) ? 6 : 5 }}" class="py-12 text-center text-[var(--text-muted)]">
+                        <td colspan="{{ in_array($category, ['kontrak_exp', 'sso_open', 'baa', 'exception']) ? 6 : 5 }}" class="py-12 text-center text-[var(--text-muted)]">
                             @if(request()->filled('month') || request()->filled('year'))
                                 Tidak ada tugas pada bulan ini.
                             @else

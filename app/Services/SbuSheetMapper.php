@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Task;
 use Carbon\Carbon;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 /**
  * Maps columns from SBU "Project Monitoring PPB" Excel sheets
@@ -15,13 +16,78 @@ use Carbon\Carbon;
 class SbuSheetMapper
 {
     /**
+     * Recognized comment / kendala column header patterns per category.
+     * Normalized patterns matched against normalized CSV headers.
+     * Defined in ONE place as required.
+     *
+     * @var array<string, list<string>>
+     */
+    public const COMMENT_COLUMNS_BY_CATEGORY = [
+        Task::CATEGORY_SSO_OPEN => [
+            'progress pekerjaan',
+            'progress/kendala',
+            'progress/kendala/support',
+        ],
+        Task::CATEGORY_BAA => [
+            'kendala',
+            'kendala/support',
+            'progress/kendala',
+            'progress/kendala/support',
+        ],
+        Task::CATEGORY_EXCEPTION => [
+            'progress/kendala/support',
+            'progress/kendala',
+            'kendala/support',
+            'kendala',
+        ],
+        Task::CATEGORY_KONTRAK_EXP => [
+            'progress/kendala/support',
+            'progress/kendala',
+            'kendala/support',
+            'kendala',
+        ],
+    ];
+
+    /**
+     * Explicitly forbidden columns that must NEVER be used as task comments.
+     *
+     * @var list<string>
+     */
+    public const FORBIDDEN_COMMENT_HEADERS = [
+        'status',
+        'cek',
+        'sales',
+        'adev',
+        'keterangan',
+        'kendala pdl',
+        'suport dari ppb',
+        'support dari ppb',
+        'harga',
+        'tanggal',
+        'komitmen',
+        'bulan',
+        'week',
+    ];
+
+    /**
+     * Get list of categories that support automatic comment import.
+     *
+     * @return list<string>
+     */
+    public static function allowedCommentCategories(): array
+    {
+        return array_keys(self::COMMENT_COLUMNS_BY_CATEGORY);
+    }
+
+    /**
      * Known SBU header keywords mapped to semantic field names.
      * Order matters: first match wins for ambiguous headers.
      *
      * @var array<string, list<string>>
      */
     private const HEADER_PATTERNS = [
-        'document_number' => ['id pa', 'idpa', 'id pelanggan', 'sid'],
+        'id_pelanggan' => ['id pelanggan', 'idpelanggan', 'id customer', 'idcustomer', 'id cust', 'idcust', 'no pelanggan', 'nopelanggan', 'customer id', 'cust id'],
+        'document_number' => ['sid / thbl', 'sidthbl', 'id pa', 'idpa', 'sid'],
         'tanggal_komitmen' => ['tanggal komitmen close', 'komitmen close'],
         'row_number' => ['no'],
         'customer_name' => ['nama pelanggan', 'namapelanggan'],
@@ -33,9 +99,11 @@ class SbuSheetMapper
         'kp' => ['kp'],
         'sub_bidang' => ['sub bidang', 'subbidang', 'subbidangrevenue'],
         'sales' => ['sales'],
-        'status' => ['status'],
+        'so_comment' => ['progress pekerjaan', 'progress / kendala', 'progress/kendala', 'progress kendala'],
+        'status' => ['status pekerjaan', 'status'],
         'kendala' => ['kendala pdl', 'kendala'],
-        'konfirmasi' => ['confirm to ppb', 'confirm to', 'konfirmasi'],
+        'confirm_to' => ['confirm to'],
+        'konfirmasi' => ['confirm to ppb', 'konfirmasi'],
         'alasan' => ['alasan'],
         'keterangan' => ['keterangan'],
         'support' => ['suport dari ppb', 'support dari ppb', 'support'],
@@ -178,7 +246,7 @@ class SbuSheetMapper
      * @param  list<mixed>  $headerRow
      * @return ColumnMap
      */
-    public function buildColumnMap(array $headerRow): array
+    public function buildColumnMap(array $headerRow, ?string $category = null): array
     {
         /** @var ColumnMap $map */
         $map = array_fill_keys(array_keys(self::HEADER_PATTERNS), null);
@@ -194,8 +262,18 @@ class SbuSheetMapper
 
                 foreach ($patterns as $pattern) {
                     if (str_contains($header, $pattern)) {
+                        // Avoid "id_pelanggan" matching "id pelanggan produk" or "layanan"
+                        if ($field === 'id_pelanggan' && (str_contains($header, 'produk') || str_contains($header, 'layanan'))) {
+                            continue;
+                        }
+
                         // Avoid "aging" matching "tanggal aging" when tanggal_aging is a separate field
                         if ($field === 'aging_days' && str_contains($header, 'tanggal')) {
+                            continue;
+                        }
+
+                        // Avoid "confirm_to" matching "confirm to ppb"
+                        if ($field === 'confirm_to' && str_contains($header, 'ppb')) {
                             continue;
                         }
 
@@ -207,11 +285,104 @@ class SbuSheetMapper
             }
         }
 
-        // If 'document_number' is null but 'row_number' is set and has an adjacent ID-like column, skip
-        // Exception sheet: col A = NO (row number), col B = ID Pelanggan
-        // This case is already handled since 'id pelanggan' matches 'document_number'
+        // Fallback for document_number if no ID PA / SID column exists (e.g. sheets using 'ID Pelanggan' as doc number)
+        if ($map['document_number'] === null) {
+            if ($map['id_pelanggan'] !== null) {
+                $map['document_number'] = $map['id_pelanggan'];
+            } else {
+                foreach ($normalized as $colIndex => $header) {
+                    if ($header === '') {
+                        continue;
+                    }
+                    foreach (['id pelanggan', 'idpelanggan', 'id customer', 'idcustomer'] as $pattern) {
+                        if (str_contains($header, $pattern)) {
+                            $map['document_number'] = $colIndex;
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Dedicated category-aware comment column mapping
+        $commentCol = $this->resolveCommentColumnIndex($headerRow, $category);
+        $map['import_comment'] = $commentCol;
+        $map['so_comment'] = $commentCol;
 
         return $map;
+    }
+
+    /**
+     * Tolerant normalization of comment column headers:
+     * - Trims non-breaking spaces (U+00A0), zero-width characters, BOM
+     * - Converts to lowercase
+     * - Replaces newlines/carriage returns and tabs with spaces
+     * - Normalizes spaces around slashes (" / " -> "/")
+     * - Normalizes spelling variations ("progres" -> "progress", "suport" -> "support")
+     * - Removes punctuation other than '/'
+     * - Collapses multiple spaces
+     */
+    public function normalizeCommentHeader(string $rawHeader): string
+    {
+        $clean = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $rawHeader) ?? $rawHeader;
+        $clean = mb_strtolower(trim($clean));
+        $clean = preg_replace('/[\r\n\t]+/', ' ', $clean) ?? $clean;
+        $clean = preg_replace('/\s*\/\s*/', '/', $clean) ?? $clean;
+        $clean = preg_replace('/\bprogres\b/u', 'progress', $clean) ?? $clean;
+        $clean = preg_replace('/\bsuport\b/u', 'support', $clean) ?? $clean;
+        $clean = preg_replace('/[^\p{L}\p{N}\s\/]/u', '', $clean) ?? $clean;
+        $clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
+
+        return trim($clean);
+    }
+
+    /**
+     * Resolve comment/kendala column index based on tolerant category-specific rules.
+     *
+     * @param  list<mixed>  $headerRow
+     */
+    public function resolveCommentColumnIndex(array $headerRow, ?string $category = null): ?int
+    {
+        if ($category === Task::CATEGORY_BAI) {
+            return null; // BAI is strictly skipped
+        }
+
+        $candidates = $category !== null
+            ? (self::COMMENT_COLUMNS_BY_CATEGORY[$category] ?? [])
+            : array_unique(array_merge(...array_values(self::COMMENT_COLUMNS_BY_CATEGORY)));
+
+        foreach ($headerRow as $idx => $rawHeader) {
+            $norm = $this->normalizeCommentHeader((string) $rawHeader);
+            if ($norm === '') {
+                continue;
+            }
+
+            // Reject explicitly forbidden headers (status, CEK, SALES, ADEV, KETERANGAN, Kendala PDL, Suport dari PPB, harga, tanggal, etc.)
+            foreach (self::FORBIDDEN_COMMENT_HEADERS as $forbidden) {
+                if ($norm === $forbidden || str_starts_with($norm, $forbidden.' ') || str_starts_with($norm, $forbidden.'/')) {
+                    continue 2;
+                }
+            }
+
+            // Reject standalone 'support' (e.g. in BAA header "Support")
+            if ($norm === 'support') {
+                continue;
+            }
+
+            // 1. Direct match with candidates
+            if (in_array($norm, $candidates, true)) {
+                return (int) $idx;
+            }
+
+            // 2. Tolerant match if trailing "/support" or "support" suffix is present
+            $strippedSupport = preg_replace('/\/?\s*support$/', '', $norm);
+            $strippedSupport = trim(rtrim((string) $strippedSupport, '/'));
+            if ($strippedSupport !== '' && in_array($strippedSupport, $candidates, true)) {
+                return (int) $idx;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -225,19 +396,35 @@ class SbuSheetMapper
     {
         $get = fn (string $field): string => trim((string) ($row[$columnMap[$field] ?? -1] ?? ''));
 
-        $docNumber = $get('document_number');
+        $rawDoc = $row[$columnMap['document_number'] ?? -1] ?? '';
+        $docNumber = $this->formatDocumentNumber($rawDoc);
         $customerName = $get('customer_name');
         $serviceType = $get('service_type');
         $sales = $get('sales');
+
+        $rawIdPelanggan = $row[$columnMap['id_pelanggan'] ?? -1] ?? '';
+        $idPelanggan = $this->formatDocumentNumber($rawIdPelanggan);
+        if ($idPelanggan === '' || $idPelanggan === '-') {
+            $idPelanggan = null;
+        }
 
         // Skip completely empty rows
         if ($docNumber === '' && $customerName === '' && $serviceType === '') {
             return null;
         }
 
-        // If no document_number, generate from customer + index
-        if ($docNumber === '') {
+        // If no document_number or ID PA is empty/invalid, skip row
+        if ($docNumber === '' || ! preg_match('/[a-zA-Z0-9]/', $docNumber)) {
             return null;
+        }
+
+        // Confirm to (PDL or Sales) for SO Open
+        $confirmTo = null;
+        if ($category === Task::CATEGORY_SSO_OPEN) {
+            $rawConfirmTo = $get('confirm_to');
+            if ($rawConfirmTo !== '' && $rawConfirmTo !== '-') {
+                $confirmTo = $rawConfirmTo;
+            }
         }
 
         // Detect SO subtype (PDL vs PPB) for SO Open
@@ -276,11 +463,11 @@ class SbuSheetMapper
         $kp = $this->normalizeKp($get('kp')) ?? $this->normalizeKp($get('sub_bidang'));
 
         // Normalize kategori segmen
-        $kategoriSegmen = $this->normalizeSegmen($get('kategori_segmen'));
+        $kategoriSegmen = $this->normalizeSegmen($get('kategori_segmen'), $customerName);
 
-        // Normalize status
+        // Normalize status: gunakan mapping per kategori
         $rawStatus = $get('status');
-        $status = $this->normalizeStatus($rawStatus);
+        $status = $this->resolveStatusForCategory($category, $rawStatus);
 
         // Parse rp_exception
         $rpException = $this->parseRpException($get('rp_exception'));
@@ -291,8 +478,30 @@ class SbuSheetMapper
         // Parse dates
         $dates = $this->parseDates($row, $columnMap);
 
+        // Comment extraction for sso_open, baa, exception, kontrak_exp (BAI is skipped)
+        $comment = null;
+        if (in_array($category, self::allowedCommentCategories(), true)) {
+            $commentCol = $columnMap['import_comment'] ?? $columnMap['so_comment'] ?? null;
+            if ($commentCol !== null) {
+                $rawComment = $row[$commentCol] ?? null;
+                if ($rawComment !== null) {
+                    $cleanComment = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', (string) $rawComment) ?? (string) $rawComment;
+                    $trimmedComment = trim($cleanComment);
+                    if ($trimmedComment !== '' && ! preg_match('/^[\s\-\x{2013}\x{2014}]+$/u', $trimmedComment)) {
+                        $comment = Task::extractKendalaFromDescription($trimmedComment) ?: $trimmedComment;
+                    }
+                }
+            }
+
+            // Fallback to Kendala portion only if no dedicated comment column was found in the sheet
+            if ($comment === null && $commentCol === null && ! empty($description) && $category !== Task::CATEGORY_SSO_OPEN) {
+                $comment = Task::extractKendalaFromDescription($description);
+            }
+        }
+
         return [
             'document_number' => $docNumber,
+            'id_pelanggan' => $idPelanggan,
             'category' => $category,
             'title' => $title,
             'description' => $description ?: null,
@@ -308,20 +517,31 @@ class SbuSheetMapper
             'start_date' => $dates['start_date'],
             'due_date' => $dates['due_date'],
             'sales_identifier' => $sales, // for user matching in controller
+            'confirm_to' => $confirmTo,
+            'comments' => $comment,
         ];
     }
 
     /**
      * Parse accounting currency number into numeric float.
      */
-    public function parseAccountingNumber(string $value): float
+    public function parseAccountingNumber(mixed $value): float
     {
-        $clean = trim($value);
-        if ($clean === '' || $clean === '-' || $clean === '0') {
+        if ($value === null) {
+            return 0.0;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+
+        $clean = trim((string) $value);
+        if ($clean === '' || $clean === '-' || $clean === '0' || $clean === '0.00' || $clean === '0,00') {
             return 0.0;
         }
 
         $clean = trim($clean, "\"' \t\n\r\0\x0B");
+        $clean = preg_replace('/^(rp|idr)\.?\s*/i', '', $clean);
 
         if (str_contains($clean, '.') && str_contains($clean, ',')) {
             $lastDot = strrpos($clean, '.');
@@ -349,7 +569,7 @@ class SbuSheetMapper
     /**
      * Parse rp_exception accounting value into numeric float.
      */
-    public function parseRpException(string $value): float
+    public function parseRpException(mixed $value): float
     {
         return $this->parseAccountingNumber($value);
     }
@@ -384,7 +604,7 @@ class SbuSheetMapper
     /**
      * Normalize kategori segmen (PUBLIK/PLN).
      */
-    public function normalizeSegmen(string $value): string
+    public function normalizeSegmen(string $value, ?string $customerName = null): string
     {
         $lower = strtolower(trim($value));
 
@@ -392,30 +612,118 @@ class SbuSheetMapper
             return Task::SEGMEN_PLN;
         }
 
+        if ($customerName !== null && str_contains(strtolower($customerName), 'pln')) {
+            return Task::SEGMEN_PLN;
+        }
+
         return Task::SEGMEN_PUBLIK;
     }
 
     /**
-     * Normalize SBU status to ICON task status.
+     * Resolve task status based on category and raw status string.
      */
-    public function normalizeStatus(string $value): string
+    public function resolveStatusForCategory(?string $category, ?string $rawStatus): string
     {
-        $lower = strtolower(trim($value));
+        $raw = trim((string) ($rawStatus ?? ''));
+        $lower = strtolower(preg_replace('/\s+/', ' ', $raw));
 
-        if ($lower === '') {
+        if ($category === Task::CATEGORY_BAA) {
+            if ($lower === '') {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            if (str_contains($lower, 'done') || str_contains($lower, 'selesai')) {
+                return Task::STATUS_APPROVED;
+            }
+
+            if (
+                str_contains($lower, 'on process')
+                || str_contains($lower, 'on progress')
+                || str_contains($lower, 'on proses')
+                || str_contains($lower, 'sedang dikerjakan')
+            ) {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
             return Task::STATUS_IN_PROGRESS;
         }
 
-        return match (true) {
-            str_contains($lower, 'done') => Task::STATUS_APPROVED,
-            str_contains($lower, 'on process'), str_contains($lower, 'on proses') => Task::STATUS_IN_PROGRESS,
-            str_contains($lower, 'perpanjang') => Task::STATUS_IN_PROGRESS,
-            str_contains($lower, 'deaktivasi') => Task::STATUS_APPROVED,
-            str_contains($lower, 'pelanggan') => Task::STATUS_IN_PROGRESS,
-            str_contains($lower, 'proses') => Task::STATUS_IN_PROGRESS,
-            str_contains($lower, 'close') => Task::STATUS_APPROVED,
-            default => Task::STATUS_IN_PROGRESS,
-        };
+        if ($category === Task::CATEGORY_EXCEPTION) {
+            if ($lower === '') {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            // Status CLOSE / CLOSED -> approved
+            if (str_contains($lower, 'close') || str_contains($lower, 'closed')) {
+                return Task::STATUS_APPROVED;
+            }
+
+            // Status EXCEPTION OPEN (abaikan huruf besar/kecil dan spasi) / open -> in_progress
+            if (str_contains($lower, 'exception open') || str_contains($lower, 'open')) {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            return Task::STATUS_IN_PROGRESS;
+        }
+
+        if ($category === Task::CATEGORY_SSO_OPEN) {
+            if ($lower === '') {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            if (str_contains($lower, 'done') || str_contains($lower, 'selesai')) {
+                return Task::STATUS_APPROVED;
+            }
+
+            if (
+                str_contains($lower, 'on process')
+                || str_contains($lower, 'on progress')
+                || str_contains($lower, 'on proses')
+                || str_contains($lower, 'sedang dikerjakan')
+            ) {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            return Task::STATUS_IN_PROGRESS;
+        }
+
+        if ($category === Task::CATEGORY_KONTRAK_EXP) {
+            $cleaned = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', (string) $rawStatus) ?? (string) $rawStatus;
+            $cleaned = preg_replace('/[\x{00A0}\x{202F}]/u', ' ', $cleaned) ?? $cleaned;
+            $normalized = mb_strtolower(trim($cleaned), 'UTF-8');
+            $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+
+            if ($normalized === '') {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            if (str_contains($normalized, 'done') || str_contains($normalized, 'selesai')) {
+                return Task::STATUS_APPROVED;
+            }
+
+            if (
+                str_contains($normalized, 'on process')
+                || str_contains($normalized, 'on progress')
+                || str_contains($normalized, 'on proses')
+                || str_contains($normalized, 'sedang dikerjakan')
+            ) {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            // Kosong atau tidak dikenal -> Task::STATUS_IN_PROGRESS untuk sementara
+            return Task::STATUS_IN_PROGRESS;
+        }
+
+        // Kategori lain (BAI): tetap pending seperti sebelum perubahan BAA
+        return Task::STATUS_PENDING;
+    }
+
+    /**
+     * Normalize SBU status to ICON task status (legacy helper).
+     */
+    public function normalizeStatus(string $value, ?string $category = Task::CATEGORY_BAA): string
+    {
+        return $this->resolveStatusForCategory($category, $value);
     }
 
     /**
@@ -549,14 +857,19 @@ class SbuSheetMapper
             }
         }
 
-        // If we have a target_days value and a start_date, compute due_date
-        if ($dueDate === null && $startDate !== null) {
-            $targetDays = $get('target_days');
-            if ($targetDays !== '' && is_numeric($targetDays)) {
-                try {
-                    $dueDate = Carbon::parse($startDate)->addDays((int) ceil((float) $targetDays))->toDateString();
-                } catch (\Exception) {
-                    // ignore
+        // If target_days is present, check if it is a specific date or a day offset
+        if ($dueDate === null) {
+            $targetVal = $get('target_days');
+            if ($targetVal !== '' && $targetVal !== '-' && $targetVal !== '--/--/--') {
+                $parsedTarget = $this->tryParseDate($targetVal);
+                if ($parsedTarget) {
+                    $dueDate = $parsedTarget;
+                } elseif (is_numeric($targetVal) && (float) $targetVal < 1000 && $startDate !== null) {
+                    try {
+                        $dueDate = Carbon::parse($startDate)->addDays((int) ceil((float) $targetVal))->toDateString();
+                    } catch (\Exception) {
+                        // ignore
+                    }
                 }
             }
         }
@@ -592,37 +905,80 @@ class SbuSheetMapper
     }
 
     /**
-     * Try to parse a date string from various SBU formats.
+     * Try to parse a date string or Excel serial number from various SBU formats.
      */
-    private function tryParseDate(string $value): ?string
+    public function tryParseDate(mixed $value): ?string
     {
-        $value = trim($value);
-        if ($value === '' || $value === '-' || $value === '--/--/--' || $value === '/ /') {
+        if ($value === null) {
             return null;
         }
 
+        // Handle numeric Excel date serials (e.g. 46290 = 2026-09-25)
+        if (is_numeric($value)) {
+            $num = (float) $value;
+            // Valid Excel serial dates between year 2000 (~36526) and 2050 (~54789)
+            if ($num >= 35000 && $num <= 55000) {
+                try {
+                    $dt = Date::excelToDateTimeObject($num);
+
+                    return Carbon::instance($dt)->toDateString();
+                } catch (\Exception) {
+                    // continue
+                }
+            }
+        }
+
+        $cleanStr = trim((string) $value);
+        if ($cleanStr === '' || $cleanStr === '-' || $cleanStr === '--/--/--' || $cleanStr === '/ /') {
+            return null;
+        }
+
+        // If numeric string representing Excel serial
+        if (is_numeric($cleanStr)) {
+            $num = (float) $cleanStr;
+            if ($num >= 35000 && $num <= 55000) {
+                try {
+                    $dt = Date::excelToDateTimeObject($num);
+
+                    return Carbon::instance($dt)->toDateString();
+                } catch (\Exception) {
+                    // continue
+                }
+            }
+        }
+
         // Remove time portion if present (e.g., "29/06/2026 10.39")
-        $value = preg_replace('/\s+\d{1,2}[.:]\d{2}(:\d{2})?$/', '', $value);
+        $cleanStr = preg_replace('/\s+\d{1,2}[.:]\d{2}(:\d{2})?$/', '', $cleanStr);
 
         try {
-            // Try Carbon::parse which handles many formats
-            $date = Carbon::parse($value);
+            // Try Carbon::parse which handles many formats (including m/d/Y or Y-m-d)
+            $date = Carbon::parse($cleanStr);
 
-            // Sanity check: year should be reasonable (2020-2030)
+            // Sanity check: year should be reasonable (2020-2035)
             if ($date->year < 2020 || $date->year > 2035) {
                 return null;
             }
 
             return $date->toDateString();
         } catch (\Exception) {
-            // Try manual parsing for dd/mm/yyyy format
-            if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{2,4})$#', $value, $matches)) {
-                $day = (int) $matches[1];
-                $month = (int) $matches[2];
+            // Try manual parsing for dd/mm/yyyy or mm/dd/yyyy format
+            if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{2,4})$#', $cleanStr, $matches)) {
+                $p1 = (int) $matches[1];
+                $p2 = (int) $matches[2];
                 $year = (int) $matches[3];
 
                 if ($year < 100) {
                     $year += 2000;
+                }
+
+                // If first number > 12, it's definitely day/month/year
+                if ($p1 > 12) {
+                    $day = $p1;
+                    $month = $p2;
+                } else {
+                    // SBU format is typically MM/DD/YYYY ("Tanggal Upload BAI (MM/DD/YYYY)")
+                    $month = $p1;
+                    $day = $p2;
                 }
 
                 try {
@@ -638,15 +994,145 @@ class SbuSheetMapper
 
     /**
      * Normalize a header string for comparison.
+     * Replaces newlines and multiple spaces with a single space,
+     * trims, and converts to lowercase alphanumeric.
      */
-    private function normalizeHeader(string $header): string
+    public function normalizeHeader(string $header): string
     {
+        // 1. Replace newlines and carriage returns with a single space
+        $header = str_replace(["\r\n", "\r", "\n"], ' ', $header);
+        // 2. Collapse multiple spaces
+        $header = preg_replace('/\s+/', ' ', $header);
+        // 3. Lowercase and trim
         $header = strtolower(trim($header));
-        // Remove special characters but keep spaces
+        // 4. Remove special characters except alphanumeric and whitespace
         $header = preg_replace('/[^a-z0-9\s]/', '', $header);
-        // Collapse multiple spaces
+        // 5. Final collapse of multiple spaces
         $header = preg_replace('/\s+/', ' ', $header);
 
         return trim($header);
+    }
+
+    /**
+     * Format document number to avoid scientific notation or floating point artifacts.
+     */
+    public function formatDocumentNumber(mixed $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        if (is_int($value)) {
+            return (string) $value;
+        }
+
+        if (is_float($value)) {
+            return sprintf('%.0f', $value);
+        }
+
+        $str = trim((string) $value);
+        if ($str === '') {
+            return '';
+        }
+
+        // If scientific notation e.g. 1.42402E+11 or 1.42402e+11
+        if (preg_match('/^[+-]?\d+(\.\d+)?[eE][+-]?\d+$/', $str)) {
+            return sprintf('%.0f', (float) $str);
+        }
+
+        return $str;
+    }
+
+    /**
+     * Automatically find the header row index (scanning first 30 rows).
+     *
+     * @param  list<list<mixed>>  $rows
+     */
+    public function findHeaderRowIndex(array $rows, ?string $targetCategory = null): ?int
+    {
+        $maxScan = min(count($rows), 30);
+        for ($i = 0; $i < $maxScan; $i++) {
+            $row = $rows[$i];
+            if (! is_array($row) || empty($row)) {
+                continue;
+            }
+
+            $normalizedCells = [];
+            foreach ($row as $cell) {
+                if ($cell !== null) {
+                    $norm = $this->normalizeHeader((string) $cell);
+                    if ($norm !== '') {
+                        $normalizedCells[] = $norm;
+                    }
+                }
+            }
+
+            if (empty($normalizedCells)) {
+                continue;
+            }
+
+            $hasIdPa = false;
+            $hasCustomer = false;
+            foreach ($normalizedCells as $cell) {
+                if (str_contains($cell, 'id pa') || str_contains($cell, 'idpa') || str_contains($cell, 'id pelanggan') || str_contains($cell, 'sid')) {
+                    $hasIdPa = true;
+                }
+                if (str_contains($cell, 'nama pelanggan') || str_contains($cell, 'namapelanggan')) {
+                    $hasCustomer = true;
+                }
+            }
+
+            if ($targetCategory === Task::CATEGORY_BAA) {
+                if ($hasIdPa && $hasCustomer) {
+                    return $i;
+                }
+                if ($hasIdPa) {
+                    foreach ($normalizedCells as $cell) {
+                        if (str_contains($cell, 'layanan') || str_contains($cell, 'sales') || str_contains($cell, 'aging') || str_contains($cell, 'upload')) {
+                            return $i;
+                        }
+                    }
+                }
+            } else {
+                if ($hasIdPa && $hasCustomer) {
+                    return $i;
+                }
+                if ($hasIdPa) {
+                    return $i;
+                }
+                // Check for ICON template header
+                $hasCategory = false;
+                $hasDoc = false;
+                foreach ($normalizedCells as $cell) {
+                    if (str_contains($cell, 'kategori')) {
+                        $hasCategory = true;
+                    }
+                    if (str_contains($cell, 'nomor dokumen') || str_contains($cell, 'judul')) {
+                        $hasDoc = true;
+                    }
+                }
+                if ($hasCategory && $hasDoc) {
+                    return $i;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Trim trailing empty cells from row and check if row has any content.
+     *
+     * @param  list<mixed>  $row
+     */
+    public function isRowEmpty(array $row): bool
+    {
+        foreach ($row as $cell) {
+            if ($cell !== null && trim((string) $cell) !== '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

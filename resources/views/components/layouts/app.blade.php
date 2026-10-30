@@ -80,6 +80,10 @@
                         <svg class="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                         Semua Tugas
                     </a>
+                    <a href="{{ route('activity-logs.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('activity-logs.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <svg class="w-5 h-5 opacity-80 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Riwayat Aktivitas
+                    </a>
                     @if(auth()->user()->isAdmin())
                     <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all {{ request()->routeIs('admin.users.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
                         <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
@@ -90,6 +94,9 @@
             </div>
 
             <!-- 5 Kategori ICON -->
+            @php
+                $sidebarBadgeCounts = $sidebarBadgeCounts ?? \App\Models\Task::sidebarBadgeCounts();
+            @endphp
             <div>
                 <div class="px-3 flex items-center justify-between mb-2">
                     <p class="text-[11px] font-semibold text-blue-400/80 uppercase tracking-wider">Kategori Tugas</p>
@@ -102,19 +109,8 @@
                             <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
                             <span>SO Open</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
-                            {{ \App\Models\Task::where('category', 'sso_open')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
-                        </span>
-                    </a>
-
-                    <!-- BAA -->
-                    <a href="{{ route('tasks.category', 'baa') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/baa*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                        <div class="flex items-center gap-3">
-                            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                            <span>BAA</span>
-                        </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
-                            {{ \App\Models\Task::where('category', 'baa')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['sso_open'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['sso_open'] ?? 0 }}
                         </span>
                     </a>
 
@@ -124,8 +120,19 @@
                             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
                             <span>BAI</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
-                            {{ \App\Models\Task::where('category', 'bai')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['bai'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['bai'] ?? 0 }}
+                        </span>
+                    </a>
+
+                    <!-- BAA -->
+                    <a href="{{ route('tasks.category', 'baa') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/baa*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                            <span>BAA</span>
+                        </div>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['baa'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['baa'] ?? 0 }}
                         </span>
                     </a>
 
@@ -135,8 +142,8 @@
                             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
                             <span>EXCEPTION</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
-                            {{ \App\Models\Task::where('category', 'exception')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['exception'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['exception'] ?? 0 }}
                         </span>
                     </a>
 
@@ -146,8 +153,8 @@
                             <span class="w-2 h-2 rounded-full bg-purple-400"></span>
                             <span>Kontrak Exp</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200">
-                            {{ \App\Models\Task::where('category', 'kontrak_exp')->when(!auth()->user()->isAdmin(), fn($q) => $q->where('user_id', auth()->id()))->count() }}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['kontrak_exp'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['kontrak_exp'] ?? 0 }}
                         </span>
                     </a>
                 </nav>
@@ -356,5 +363,6 @@
         document.addEventListener('DOMContentLoaded', updateThemeIcons);
     </script>
     @stack('scripts')
+    <x-auto-filter-script />
 </body>
 </html>

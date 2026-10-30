@@ -149,7 +149,14 @@
                 </div>
 
                 <div class="pt-4 border-t border-[var(--border)] flex items-center justify-between">
-                    <a href="{{ route('tasks.show', $task) }}" class="px-5 py-2.5 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text)] font-semibold text-xs transition-colors">
+                    @php
+                        $defaultBackRoute = route('tasks.show', $task);
+                        $backCandidate = request()->query('back_to') ?: (request()->query('return_to') ?: url()->previous());
+                        $backUrl = \App\Services\UrlSecurity::getSafeInternalUrl($backCandidate, $defaultBackRoute);
+                    @endphp
+                    <a href="{{ $backUrl }}" 
+                       onclick="if (window.history.length > 1 && document.referrer && document.referrer.includes(new URL('{{ $backUrl }}', window.location.origin).pathname)) { window.history.back(); return false; }"
+                       class="px-5 py-2.5 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text)] font-semibold text-xs transition-colors">
                         Batal
                     </a>
                     <button type="submit"

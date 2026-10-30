@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\View\Composers\SidebarComposer;
 use Carbon\Carbon;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,6 +21,7 @@ use Illuminate\Support\Str;
     'title',
     'description',
     'customer_name',
+    'id_pelanggan',
     'kp',
     'kategori_segmen',
     'service_type',
@@ -33,6 +35,8 @@ use Illuminate\Support\Str;
     'admin_notes',
     'reviewed_at',
     'comments',
+    'comment_updated_by',
+    'comment_updated_at',
     'late_reason',
     'was_late',
     'done_marked_at',
@@ -42,6 +46,7 @@ use Illuminate\Support\Str;
     'rp_exception',
     'harga_baru',
     'mutation_id',
+    'confirm_to',
 ])]
 class Task extends Model
 {
@@ -117,6 +122,7 @@ class Task extends Model
             'done_marked_at' => 'datetime',
             'confirmed_at' => 'datetime',
             'reviewed_at' => 'datetime',
+            'comment_updated_at' => 'datetime',
             'was_late' => 'boolean',
             'rp_exception' => 'decimal:2',
             'harga_baru' => 'decimal:2',
@@ -132,11 +138,21 @@ class Task extends Model
     {
         return [
             self::CATEGORY_SSO_OPEN => 'SO Open',
-            self::CATEGORY_BAA => 'BAA',
             self::CATEGORY_BAI => 'BAI',
+            self::CATEGORY_BAA => 'BAA',
             self::CATEGORY_EXCEPTION => 'EXCEPTION',
             self::CATEGORY_KONTRAK_EXP => 'Kontrak Exp',
         ];
+    }
+
+    /**
+     * Get aggregate in-progress task counts grouped by category for sidebar badges.
+     *
+     * @return array<string, int>
+     */
+    public static function sidebarBadgeCounts(?User $user = null): array
+    {
+        return SidebarComposer::getCategoryBadgeCounts($user);
     }
 
     /**
@@ -255,6 +271,18 @@ class Task extends Model
     }
 
     /**
+     * Check if task is PPB in SO Open category based on confirm_to = "Sales".
+     */
+    public function getIsPpbAttribute(): bool
+    {
+        if ($this->category !== self::CATEGORY_SSO_OPEN) {
+            return false;
+        }
+
+        return strtolower(trim((string) $this->confirm_to)) === 'sales';
+    }
+
+    /**
      * Check if task is overdue.
      */
     public function getIsOverdueAttribute(): bool
@@ -314,6 +342,14 @@ class Task extends Model
     public function confirmedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
+    /**
+     * Relation to the user who last updated the comment.
+     */
+    public function commentUpdatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'comment_updated_by');
     }
 
     /**
@@ -450,5 +486,40 @@ class Task extends Model
             11 => 'November',
             12 => 'Desember',
         ];
+    }
+
+    /**
+     * Extract only the Kendala portion from task description text.
+     * Excludes other sections like "Alasan:", "Keterangan:", "Support:", price data, etc.
+     */
+    public static function extractKendalaFromDescription(?string $description): ?string
+    {
+        if (empty($description)) {
+            return null;
+        }
+
+        // Look for "Kendala: <text>" up until the next section label or end of string
+        if (preg_match('/(?:^|\r?\n)Kendala:[^\S\r\n]*([\s\S]*?)(?=(?:\r?\n)(?:Alasan|Keterangan|Support|No\.?\s*Kontrak|Konfirmasi|Harga|Tipe SO|RF Layanan|RF Install):|$)/i', $description, $matches)) {
+            $val = trim($matches[1]);
+            $val = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $val) ?? $val;
+            $val = trim($val);
+            if ($val !== '' && ! preg_match('/^[\s\-\x{2013}\x{2014}]+$/u', $val)) {
+                return $val;
+            }
+
+            return null;
+        }
+
+        // If no "Kendala:" label, check if description is a simple text that does NOT contain system-generated labels
+        $systemLabels = '/(?:Harga\s*(?:Lama|Baru)?|Selisih|Tipe SO|No\.?\s*Kontrak|Konfirmasi|RF\s*(?:Layanan|Install)|Alasan|Keterangan|Support):/i';
+        if (! preg_match($systemLabels, $description)) {
+            $val = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $description) ?? $description;
+            $val = trim($val);
+            if ($val !== '' && ! preg_match('/^[\s\-\x{2013}\x{2014}]+$/u', $val)) {
+                return $val;
+            }
+        }
+
+        return null;
     }
 }

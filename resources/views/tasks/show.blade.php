@@ -5,13 +5,20 @@
     <div class="max-w-5xl mx-auto space-y-6">
         <!-- Top Navigation -->
         <div class="flex items-center justify-between">
-            <a href="{{ route('tasks.category', $task->category) }}" class="inline-flex items-center gap-1 text-xs font-semibold text-blue-500 hover:opacity-80">
+            @php
+                $defaultBackRoute = route('tasks.category', $task->category);
+                $backCandidate = request()->query('back_to') ?: (request()->query('return_to') ?: url()->previous());
+                $backUrl = \App\Services\UrlSecurity::getSafeInternalUrl($backCandidate, $defaultBackRoute);
+            @endphp
+            <a href="{{ $backUrl }}" 
+               onclick="if (window.history.length > 1 && document.referrer && document.referrer.includes(new URL('{{ $backUrl }}', window.location.origin).pathname)) { window.history.back(); return false; }"
+               class="inline-flex items-center gap-1 text-xs font-semibold text-blue-500 hover:opacity-80">
                 &larr; Kembali ke {{ $task->category_label }}
             </a>
 
             @if(auth()->user()->isAdmin())
             <div class="flex items-center gap-2">
-                <a href="{{ route('tasks.edit', $task) }}" class="px-3 py-1.5 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text)] text-xs font-semibold transition-colors">
+                <a href="{{ route('tasks.edit', ['task' => $task, 'back_to' => request()->fullUrl(), 'return_to' => request()->fullUrl()]) }}" class="px-3 py-1.5 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text)] text-xs font-semibold transition-colors">
                     Edit Tugas
                 </a>
                 <form method="POST" action="{{ route('tasks.destroy', $task) }}" onsubmit="return confirm('Apakah Anda yakin ingin menghapus tugas ini?')">
@@ -73,6 +80,11 @@
                         @if($task->customer_name)
                             <span class="flex items-center gap-1 font-medium">
                                 🏢 Pelanggan: <strong class="text-[var(--text)]">{{ $task->customer_name }}</strong>
+                                @if($task->is_ppb)
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800">
+                                        PPB
+                                    </span>
+                                @endif
                             </span>
                         @endif
                         @if($task->service_type)

@@ -161,6 +161,21 @@
                     </div>
                 </a>
 
+                <!-- BAI Card -->
+                <a href="{{ route('tasks.category', 'bai') }}" class="group p-4 rounded-xl border border-emerald-200/80 dark:border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20 hover:border-emerald-400 hover:shadow-md transition-all">
+                    <div class="flex items-center justify-between">
+                        <span class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold text-sm">📝</span>
+                        <span class="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/60 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full border border-emerald-200/50 dark:border-emerald-700/50">
+                            {{ $userCategories['bai']['total'] }} Tugas
+                        </span>
+                    </div>
+                    <h4 class="mt-2 text-sm font-bold text-[var(--text)] group-hover:text-emerald-600 transition-colors">BAI</h4>
+                    <div class="mt-2 pt-2 border-t border-emerald-100 dark:border-cyan-900/50 flex items-center justify-between text-xs text-[var(--text-muted)]">
+                        <span>Belum: <strong class="text-amber-500">{{ $userCategories['bai']['unfinished'] }}</strong></span>
+                        <span>Selesai: <strong class="text-emerald-500">{{ $userCategories['bai']['completed'] }}</strong></span>
+                    </div>
+                </a>
+
                 <!-- BAA Card -->
                 <a href="{{ route('tasks.category', 'baa') }}" class="group p-4 rounded-xl border border-amber-200/80 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-950/20 hover:border-amber-400 hover:shadow-md transition-all">
                     <div class="flex items-center justify-between">
@@ -173,21 +188,6 @@
                     <div class="mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-center justify-between text-xs text-[var(--text-muted)]">
                         <span>Belum: <strong class="text-amber-500">{{ $userCategories['baa']['unfinished'] }}</strong></span>
                         <span>Selesai: <strong class="text-emerald-500">{{ $userCategories['baa']['completed'] }}</strong></span>
-                    </div>
-                </a>
-
-                <!-- BAI Card -->
-                <a href="{{ route('tasks.category', 'bai') }}" class="group p-4 rounded-xl border border-emerald-200/80 dark:border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20 hover:border-emerald-400 hover:shadow-md transition-all">
-                    <div class="flex items-center justify-between">
-                        <span class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold text-sm">📝</span>
-                        <span class="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/60 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full border border-emerald-200/50 dark:border-emerald-700/50">
-                            {{ $userCategories['bai']['total'] }} Tugas
-                        </span>
-                    </div>
-                    <h4 class="mt-2 text-sm font-bold text-[var(--text)] group-hover:text-emerald-600 transition-colors">BAI</h4>
-                    <div class="mt-2 pt-2 border-t border-emerald-100 dark:border-emerald-900/50 flex items-center justify-between text-xs text-[var(--text-muted)]">
-                        <span>Belum: <strong class="text-amber-500">{{ $userCategories['bai']['unfinished'] }}</strong></span>
-                        <span>Selesai: <strong class="text-emerald-500">{{ $userCategories['bai']['completed'] }}</strong></span>
                     </div>
                 </a>
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ReportSetting;
+use App\Services\ActivityLogger;
 use App\Services\WhatsAppReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,6 +65,16 @@ class WhatsAppReportController extends Controller
         ReportSetting::setValue('revenue_as_is_publik', $validated['revenue_as_is_publik'] ?? 0);
         ReportSetting::setValue('opportunity_pln', $validated['opportunity_pln'] ?? 0);
         ReportSetting::setValue('revenue_as_is_pln', $validated['revenue_as_is_pln'] ?? 0);
+
+        ActivityLogger::log(
+            'report_updated',
+            'Memperbarui parameter angka Laporan Update WhatsApp',
+            null,
+            $user,
+            null,
+            null,
+            ['category' => 'report']
+        );
 
         $reportText = $reportService->generateReport();
         $settings = [

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Task;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,6 +57,7 @@ class TaskController extends Controller
             $baseQuery->where(function ($q) use ($search): void {
                 $q->where('title', 'like', "%{$search}%")
                     ->orWhere('document_number', 'like', "%{$search}%")
+                    ->orWhere('id_pelanggan', 'like', "%{$search}%")
                     ->orWhere('customer_name', 'like', "%{$search}%")
                     ->orWhere('service_type', 'like', "%{$search}%")
                     ->orWhere('sales_name', 'like', "%{$search}%")
@@ -132,6 +134,18 @@ class TaskController extends Controller
 
             $customerSalesMap = $customerMeta->groupBy('customer_key')
                 ->map(fn ($items) => $items->pluck('sales_name')->filter()->unique()->values());
+
+            $customerHasPpbMap = (clone $baseQuery)
+                ->whereIn(DB::raw('TRIM(customer_name)'), $customerKeys)
+                ->where('category', Task::CATEGORY_SSO_OPEN)
+                ->whereRaw('LOWER(TRIM(confirm_to)) = ?', ['sales'])
+                ->selectRaw('TRIM(customer_name) as customer_key')
+                ->distinct()
+                ->pluck('customer_key')
+                ->flip()
+                ->map(fn () => true);
+        } else {
+            $customerHasPpbMap = collect();
         }
 
         // Total Rp Exception per customer across ALL tasks (NOT filtered by status, per requirements)
@@ -157,6 +171,7 @@ class TaskController extends Controller
                 $customerTotalsQuery->where(function ($q) use ($search): void {
                     $q->where('title', 'like', "%{$search}%")
                         ->orWhere('document_number', 'like', "%{$search}%")
+                        ->orWhere('id_pelanggan', 'like', "%{$search}%")
                         ->orWhere('customer_name', 'like', "%{$search}%")
                         ->orWhere('service_type', 'like', "%{$search}%")
                         ->orWhere('sales_name', 'like', "%{$search}%");
@@ -176,6 +191,51 @@ class TaskController extends Controller
                 ->selectRaw('TRIM(customer_name) as customer_key, SUM(rp_exception) as total_rp')
                 ->groupByRaw('TRIM(customer_name)')
                 ->pluck('total_rp', 'customer_key');
+        }
+
+        // Total Harga Baru per customer across ALL tasks (NOT filtered by status, per requirements)
+        $customerHargaBaruTotals = collect();
+        if ($category === 'baa' && ! empty($customerKeys)) {
+            $customerTotalsQuery = Task::where('category', 'baa');
+            if (! $user->isAdmin()) {
+                $customerTotalsQuery->where('user_id', $user->id);
+            } elseif ($request->filled('user_id')) {
+                $customerTotalsQuery->where('user_id', $request->integer('user_id'));
+            }
+            if ($request->filled('sales_name')) {
+                $customerTotalsQuery->where('sales_name', $request->input('sales_name'));
+            }
+            if ($request->filled('kp')) {
+                $customerTotalsQuery->where('kp', $request->input('kp'));
+            }
+            if ($request->filled('kategori_segmen')) {
+                $customerTotalsQuery->where('kategori_segmen', $request->input('kategori_segmen'));
+            }
+            if ($request->filled('search')) {
+                $search = $request->input('search');
+                $customerTotalsQuery->where(function ($q) use ($search): void {
+                    $q->where('title', 'like', "%{$search}%")
+                        ->orWhere('document_number', 'like', "%{$search}%")
+                        ->orWhere('id_pelanggan', 'like', "%{$search}%")
+                        ->orWhere('customer_name', 'like', "%{$search}%")
+                        ->orWhere('service_type', 'like', "%{$search}%")
+                        ->orWhere('sales_name', 'like', "%{$search}%");
+                });
+            }
+
+            if ($request->filled('month') && is_numeric($request->input('month'))) {
+                $customerTotalsQuery->whereMonth('due_date', (int) $request->input('month'));
+            }
+
+            if ($request->filled('year') && is_numeric($request->input('year'))) {
+                $customerTotalsQuery->whereYear('due_date', (int) $request->input('year'));
+            }
+
+            $customerHargaBaruTotals = $customerTotalsQuery
+                ->whereIn(DB::raw('TRIM(customer_name)'), $customerKeys)
+                ->selectRaw('TRIM(customer_name) as customer_key, SUM(harga_baru) as total_harga_baru')
+                ->groupByRaw('TRIM(customer_name)')
+                ->pluck('total_harga_baru', 'customer_key');
         }
 
         // Sales list for admin filter dropdown
@@ -288,13 +348,30 @@ class TaskController extends Controller
 
         if ($category === 'exception') {
             $totalRpException = (float) (clone $baseMetricsQuery)->sum('rp_exception');
-            $closeRpException = (float) (clone $baseMetricsQuery)->where('status', Task::STATUS_APPROVED)->sum('rp_exception');
-            $closeRpPercent = $totalRpException > 0 ? round(($closeRpException / $totalRpException) * 100, 1) : 0;
+            $doneRpException = (float) (clone $baseMetricsQuery)->where('status', Task::STATUS_APPROVED)->sum('rp_exception');
+            $doneRpPercent = $totalRpException > 0 ? round(($doneRpException / $totalRpException) * 100, 1) : 0;
 
             $totalNilai = $this->formatShortRupiah($totalRpException);
             $nilaiSub = number_format($totalCount, 0, ',', '.').' SID';
-            $netDelta = $this->formatShortRupiah($closeRpException);
-            $netDeltaSub = number_format($closeRpPercent, 1, ',', '.').'% dari total Rp Exception';
+
+            $doneRpFormatted = $this->formatShortRupiah($doneRpException);
+            $doneRpPercentFormatted = (round($doneRpPercent, 1) == (int) $doneRpPercent)
+                ? (string) (int) $doneRpPercent
+                : number_format($doneRpPercent, 1, ',', '.');
+            $doneSub = "{$doneRpFormatted} ({$doneRpPercentFormatted}% dari total Rp Exception)";
+
+            $netDelta = null;
+            $netDeltaSub = null;
+        } elseif ($category === 'baa') {
+            $totalHargaBaru = (float) (clone $baseMetricsQuery)->sum('harga_baru');
+            $totalNilai = $this->formatShortRupiah($totalHargaBaru);
+
+            $plnHarga = (float) (clone $baseMetricsQuery)->where('kategori_segmen', Task::SEGMEN_PLN)->sum('harga_baru');
+            $publikHarga = (float) (clone $baseMetricsQuery)->where('kategori_segmen', Task::SEGMEN_PUBLIK)->sum('harga_baru');
+
+            $nilaiSub = 'PLN: '.$this->formatShortRupiah($plnHarga).' | Publik: '.$this->formatShortRupiah($publikHarga);
+            $netDelta = null;
+            $netDeltaSub = null;
         } elseif ($category === 'sso_open') {
             $totalHargaBaru = (float) (clone $baseMetricsQuery)->sum('harga_baru');
             $totalNilai = $this->formatShortRupiah($totalHargaBaru);
@@ -331,7 +408,7 @@ class TaskController extends Controller
             if ($category === 'exception') {
                 $kpRpException = (float) (clone $kpQuery)->sum('rp_exception');
                 $kpNilai = $this->formatShortRupiah($kpRpException);
-            } elseif ($category === 'sso_open') {
+            } elseif ($category === 'sso_open' || $category === 'baa') {
                 $kpTotalHargaBaru = (float) (clone $kpQuery)->sum('harga_baru');
                 $kpNilai = $this->formatShortRupiah($kpTotalHargaBaru);
             } else {
@@ -348,6 +425,8 @@ class TaskController extends Controller
                         ->orWhere('title', 'like', '%[PPB]%');
                 })->count();
                 $kpPorsi = "{$kpPdl} PDL / {$kpPpb} PPB";
+            } elseif ($category === 'baa') {
+                $kpPorsi = "{$kpPln} PLN / {$kpPublik} Publik";
             } else {
                 $kpPorsi = $kpFinance['porsi'];
             }
@@ -369,6 +448,10 @@ class TaskController extends Controller
             'total' => $totalCount,
             'done' => $doneCount,
             'done_percent' => $donePercent,
+            'done_sub' => $doneSub ?? null,
+            'done_rp' => $doneRpException ?? null,
+            'done_rp_formatted' => $doneRpFormatted ?? null,
+            'done_rp_percent' => $doneRpPercent ?? null,
             'process' => $processCount,
             'process_percent' => $processPercent,
             'pln_count' => $plnCount,
@@ -391,7 +474,9 @@ class TaskController extends Controller
             'customerKpMap',
             'customerSalesMap',
             'customerContractMap',
+            'customerHasPpbMap',
             'customerRpTotals',
+            'customerHargaBaruTotals',
             'totalTaskCount',
             'salesList',
             'category',
@@ -452,6 +537,12 @@ class TaskController extends Controller
         $validated['status'] = Task::STATUS_IN_PROGRESS;
 
         $task = Task::create($validated);
+
+        ActivityLogger::log(
+            ActivityLogger::ACTION_TASK_CREATED,
+            "Membuat tugas baru {$task->document_number} ({$task->customer_name})",
+            $task
+        );
 
         return redirect()->route('tasks.show', $task)
             ->with('success', "Tugas '{$task->title}' berhasil dibuat dan ditugaskan.");
@@ -517,7 +608,19 @@ class TaskController extends Controller
         ]);
 
         $validated['priority'] = $validated['priority'] ?? ($task->priority ?: 'medium');
+        $oldStatus = $task->status;
         $task->update($validated);
+
+        if ($task->wasChanged('status')) {
+            ActivityLogger::log(
+                ActivityLogger::ACTION_STATUS_CHANGED,
+                "Mengubah status tugas {$task->document_number} ({$task->customer_name}) dari {$oldStatus} ke {$task->status}",
+                $task,
+                null,
+                $oldStatus,
+                $task->status
+            );
+        }
 
         if ($request->filled('return_to')) {
             return redirect($request->input('return_to'))
@@ -533,6 +636,12 @@ class TaskController extends Controller
      */
     public function destroy(Task $task): RedirectResponse
     {
+        ActivityLogger::log(
+            ActivityLogger::ACTION_TASK_DELETED,
+            "Menghapus tugas {$task->document_number} ({$task->customer_name})",
+            $task
+        );
+
         $task->delete();
 
         return redirect()->route('tasks.index')
@@ -551,7 +660,17 @@ class TaskController extends Controller
         }
 
         if ($task->status === Task::STATUS_PENDING) {
+            $oldStatus = $task->status;
             $task->update(['status' => Task::STATUS_IN_PROGRESS]);
+
+            ActivityLogger::log(
+                ActivityLogger::ACTION_STATUS_CHANGED,
+                "Mengubah status tugas {$task->document_number} ({$task->customer_name}) menjadi Sedang Dikerjakan",
+                $task,
+                $user,
+                $oldStatus,
+                Task::STATUS_IN_PROGRESS
+            );
         }
 
         return back()->with('success', 'Status tugas diperbarui: Sedang Dikerjakan.');
@@ -564,16 +683,8 @@ class TaskController extends Controller
     {
         $user = Auth::user();
 
-        // Admin cannot toggle via this endpoint (admin uses Verifikasi menu)
-        if ($user->isAdmin()) {
-            if ($request->expectsJson() || $request->ajax()) {
-                return response()->json(['success' => false, 'message' => 'Admin hanya dapat memverifikasi tugas melalui menu Verifikasi.'], 403);
-            }
-            abort(403, 'Admin hanya dapat memverifikasi tugas melalui menu Verifikasi.');
-        }
-
-        // Non-admin can only toggle tasks assigned to them
-        if ($task->user_id !== $user->id) {
+        // Non-admin can only toggle tasks assigned to them; admin can toggle any task
+        if (! $user->isAdmin() && $task->user_id !== $user->id) {
             if ($request->expectsJson() || $request->ajax()) {
                 return response()->json(['success' => false, 'message' => 'Anda tidak memiliki hak akses untuk tugas ini.'], 403);
             }
@@ -596,6 +707,15 @@ class TaskController extends Controller
                 'done_marked_at' => null,
                 'done_marked_by' => null,
             ]);
+
+            ActivityLogger::log(
+                ActivityLogger::ACTION_TASK_UNCHECKED,
+                "Membatalkan tanda selesai tugas {$task->document_number} ({$task->customer_name})",
+                $task,
+                $user,
+                Task::STATUS_SUBMITTED,
+                Task::STATUS_IN_PROGRESS
+            );
 
             $message = 'Tanda selesai dibatalkan. Status tugas kembali menjadi Sedang Dikerjakan.';
 
@@ -668,6 +788,16 @@ class TaskController extends Controller
         }
 
         $task->update($updateData);
+
+        ActivityLogger::log(
+            ActivityLogger::ACTION_TASK_COMPLETED_CHECKED,
+            "Menandai selesai tugas {$task->document_number} ({$task->customer_name})",
+            $task,
+            $user,
+            Task::STATUS_IN_PROGRESS,
+            Task::STATUS_SUBMITTED
+        );
+
         $message = 'Tugas berhasil ditandai selesai! Menunggu konfirmasi dari Administrator.';
 
         if ($request->expectsJson() || $request->ajax()) {
@@ -704,13 +834,34 @@ class TaskController extends Controller
             'comments' => ['required', 'string', 'max:1000'],
         ]);
 
-        $task->update(['comments' => $validated['comments']]);
+        $oldComment = $task->comments;
+
+        $task->update([
+            'comments' => $validated['comments'],
+            'comment_updated_by' => $user->id,
+            'comment_updated_at' => now(),
+        ]);
+
+        ActivityLogger::log(
+            ActivityLogger::ACTION_COMMENT_UPDATED,
+            "Memperbarui komentar pada tugas {$task->document_number} ({$task->customer_name})",
+            $task,
+            $user,
+            $oldComment,
+            $validated['comments']
+        );
 
         if ($request->expectsJson() || $request->ajax()) {
+            $updatedAtFormatted = $task->fresh()->comment_updated_at?->format('d/m/Y H:i');
+            $updatedInfo = 'Terakhir diubah oleh '.$user->name.' pada '.($updatedAtFormatted ?: now()->format('d/m/Y H:i'));
+
             return response()->json([
                 'success' => true,
                 'message' => 'Komentar berhasil disimpan.',
                 'comments' => $task->comments,
+                'comment_updated_by_name' => $user->name,
+                'comment_updated_at' => $updatedAtFormatted,
+                'updated_info' => $updatedInfo,
             ]);
         }
 
@@ -741,6 +892,8 @@ class TaskController extends Controller
             'late_reason.required' => 'Karena tugas terlambat, alasan keterlambatan wajib diisi.',
         ]);
 
+        $oldStatus = $task->status;
+
         $updateData = [
             'status' => Task::STATUS_SUBMITTED,
             'submission_notes' => $request->input('submission_notes'),
@@ -757,6 +910,15 @@ class TaskController extends Controller
         }
 
         $task->update($updateData);
+
+        ActivityLogger::log(
+            ActivityLogger::ACTION_STATUS_CHANGED,
+            "Menyerahkan tugas {$task->document_number} ({$task->customer_name}) untuk verifikasi",
+            $task,
+            $user,
+            $oldStatus,
+            Task::STATUS_SUBMITTED
+        );
 
         return redirect()->route('tasks.show', $task)
             ->with('success', 'Tugas berhasil diserahkan! Menunggu konfirmasi dan verifikasi dari Administrator.');
@@ -813,6 +975,15 @@ class TaskController extends Controller
                 'reviewed_at' => now(),
             ]);
 
+            ActivityLogger::log(
+                ActivityLogger::ACTION_TASK_VERIFIED,
+                "Memverifikasi dan menyetujui tugas {$task->document_number} ({$task->customer_name})",
+                $task,
+                null,
+                Task::STATUS_SUBMITTED,
+                Task::STATUS_APPROVED
+            );
+
             $message = 'Tugas telah dikonfirmasi (Approved) dan ditandai selesai!';
         } else {
             $task->update([
@@ -823,6 +994,15 @@ class TaskController extends Controller
                 'done_marked_by' => null,
                 'reviewed_at' => now(),
             ]);
+
+            ActivityLogger::log(
+                ActivityLogger::ACTION_TASK_REJECTED,
+                "Menolak dan mengembalikan tugas {$task->document_number} ({$task->customer_name}) untuk revisi",
+                $task,
+                null,
+                Task::STATUS_SUBMITTED,
+                Task::STATUS_REJECTED
+            );
 
             $message = 'Tugas berhasil dikembalikan ke karyawan untuk revisi.';
         }
@@ -989,6 +1169,7 @@ class TaskController extends Controller
             $search = trim((string) $request->query('search'));
             $query->where(function ($q) use ($search): void {
                 $q->where('document_number', 'like', "%{$search}%")
+                    ->orWhere('id_pelanggan', 'like', "%{$search}%")
                     ->orWhere('service_type', 'like', "%{$search}%")
                     ->orWhere('title', 'like', "%{$search}%")
                     ->orWhere('sales_name', 'like', "%{$search}%");
@@ -1000,7 +1181,7 @@ class TaskController extends Controller
             $perPage = 25;
         }
 
-        $tasks = $query->with(['user', 'assigner', 'mutation'])
+        $tasks = $query->with(['user', 'assigner', 'mutation', 'commentUpdatedBy'])
             ->orderBy('due_date', 'asc')
             ->orderBy('id', 'desc')
             ->paginate($perPage)

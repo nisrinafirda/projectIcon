@@ -1,27 +1,37 @@
 @php
-    $isOwner = (!auth()->user()->isAdmin() && $task->user_id === auth()->id());
+    $canEdit = (auth()->user()->isAdmin() || $task->user_id === auth()->id());
     $hasComment = !empty(trim((string)$task->comments));
+    $commentMeta = $task->comment_updated_at
+        ? 'Terakhir diubah oleh ' . (optional($task->commentUpdatedBy)->name ?: 'Import') . ' pada ' . $task->comment_updated_at->format('d/m/Y H:i')
+        : null;
 @endphp
 
 <div id="comment-cell-{{ $task->id }}" class="transition-all duration-200 p-1" data-has-comment="{{ $hasComment ? '1' : '0' }}">
-    @if(!$isOwner)
-        {{-- Read-only display for admin or tasks assigned to other employees --}}
+    @if(!$canEdit)
+        {{-- Read-only display for users who are neither admin nor task assignee --}}
         @if($hasComment)
-            <span class="text-[11px] text-[var(--text)] truncate block" title="{{ $task->comments }}">
-                {{ $task->comments }}
-            </span>
+            <div>
+                <span class="text-[11px] text-[var(--text)] truncate block" title="{{ $task->comments }}">
+                    {{ $task->comments }}
+                </span>
+                @if($commentMeta)
+                    <span class="text-[9px] text-[var(--text-muted)] block mt-0.5 truncate" title="{{ $commentMeta }}">
+                        {{ $commentMeta }}
+                    </span>
+                @endif
+            </div>
         @else
             <span class="text-[11px] text-[var(--text-muted)] italic">
                 -
             </span>
         @endif
     @else
-        {{-- Interactive Inline Comment for Assigned Employee --}}
+        {{-- Interactive Inline Comment for Admin and Assigned Employee --}}
 
         {{-- 1. View State --}}
         <div id="comment-view-{{ $task->id }}"
              onclick="openCommentEdit({{ $task->id }})"
-             class="group flex items-center justify-between gap-1.5 cursor-pointer py-1 px-2 rounded-lg hover:bg-[var(--surface-2)] transition-colors border border-transparent hover:border-[var(--border)]"
+             class="group flex items-start justify-between gap-1.5 cursor-pointer py-1 px-2 rounded-lg hover:bg-[var(--surface-2)] transition-colors border border-transparent hover:border-[var(--border)]"
              title="Klik untuk mengubah komentar">
             <div class="flex-1 min-w-0">
                 <span id="comment-text-{{ $task->id }}"
@@ -32,6 +42,11 @@
                     @else
                         <span>⚠️</span> Belum ada komentar
                     @endif
+                </span>
+                <span id="comment-meta-{{ $task->id }}"
+                      class="text-[9px] text-[var(--text-muted)] block mt-0.5 truncate {{ $commentMeta ? '' : 'hidden' }}"
+                      title="{{ $commentMeta ?: '' }}">
+                    {{ $commentMeta ?: '' }}
                 </span>
             </div>
             <button type="button"

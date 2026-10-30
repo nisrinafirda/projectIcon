@@ -1,3 +1,13 @@
+@php
+    $defaultBackRoute = route('tasks.category', 'exception');
+    $backCandidate = request()->query('back_to') ?: url()->previous();
+    $backUrl = \App\Services\UrlSecurity::getSafeInternalUrl($backCandidate, $defaultBackRoute);
+    $safeBackTo = \App\Services\UrlSecurity::getSafeInternalUrl(request()->query('back_to'), '');
+    $currentCleanUrl = $safeBackTo === '' && request()->filled('back_to')
+        ? request()->fullUrlWithQuery(['back_to' => null])
+        : request()->fullUrl();
+@endphp
+
 <x-layouts.app>
     <x-slot:title>{{ $customerName }} - Rincian Layanan Pelanggan</x-slot:title>
     <x-slot:pageHeading>Rincian Layanan Pelanggan</x-slot:pageHeading>
@@ -6,7 +16,8 @@
         <!-- Top Back Bar & Customer Header -->
         <div class="flex flex-col gap-4">
             <div>
-                <a href="{{ request()->query('back_to', route('tasks.category', 'exception')) }}" 
+                <a href="{{ $backUrl }}" 
+                   onclick="if (window.history.length > 1 && document.referrer && document.referrer.includes(new URL('{{ $backUrl }}', window.location.origin).pathname)) { window.history.back(); return false; }"
                    class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] text-xs font-bold transition-all shadow-2xs">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
                     <span>Kembali ke Daftar Exception</span>
@@ -52,19 +63,26 @@
 
         <!-- Filter Bar -->
         <div class="theme-card p-4 border border-[var(--border)] shadow-xs">
-            <form method="GET" action="{{ route('tasks.exception.customer', $customerSlug) }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                @if(request()->filled('back_to'))
-                    <input type="hidden" name="back_to" value="{{ request()->query('back_to') }}">
+            <form method="GET" action="{{ route('tasks.exception.customer', $customerSlug) }}" 
+                  class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
+                  data-auto-filter="true">
+                @if($safeBackTo !== '')
+                    <input type="hidden" name="back_to" value="{{ $safeBackTo }}">
                 @endif
                 @if(request()->filled('per_page'))
                     <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 @endif
 
                 <!-- Search -->
-                <div>
+                <div class="relative">
                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">Cari SID / Layanan</label>
                     <input type="text" name="search" value="{{ request()->query('search') }}" placeholder="Cari ID PA, Layanan, Sales..."
-                           class="w-full px-3 py-2 rounded-xl text-xs bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-blue-500">
+                           autocomplete="off"
+                           class="w-full pl-3 pr-9 py-2 rounded-xl text-xs bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <svg class="search-spinner w-4 h-4 text-blue-500 animate-spin absolute right-3 top-7 hidden" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                 </div>
 
                 <!-- Bulan Filter -->
@@ -117,19 +135,22 @@
 
                 <!-- Action Filter -->
                 <div class="flex items-end gap-2">
-                    <button type="submit" class="flex-1 py-2 rounded-xl theme-btn-primary text-white text-xs font-bold shadow-xs">
-                        Terapkan
-                    </button>
+                    <noscript>
+                        <button type="submit" class="flex-1 py-2 rounded-xl theme-btn-primary text-white text-xs font-bold shadow-xs cursor-pointer">
+                            Terapkan
+                        </button>
+                    </noscript>
                     <a href="{{ route('tasks.exception.customer', ['customer' => $customerSlug, 'back_to' => request()->query('back_to')]) }}" 
-                       class="px-3 py-2 rounded-xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] text-xs font-semibold">
-                        Reset
+                       class="w-full flex items-center justify-center py-2 px-3 rounded-xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] text-xs font-semibold transition-colors shadow-2xs">
+                        <svg class="w-3.5 h-3.5 mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset Filter
                     </a>
                 </div>
             </form>
         </div>
 
         <!-- Table Card -->
-        <div class="theme-card border border-[var(--border)] shadow-xs rounded-2xl overflow-hidden">
+        <div id="task-table-container" class="theme-card border border-[var(--border)] shadow-xs rounded-2xl overflow-hidden">
             <!-- Header Table -->
             <div class="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-2)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div class="flex items-center gap-2">
@@ -156,9 +177,7 @@
                             <th class="py-3 px-3.5">STATUS</th>
                             <th class="py-3 px-3.5">DEADLINE</th>
                             <th class="py-3 px-3.5 min-w-[200px] w-64">KOMENTAR</th>
-                            @if(!auth()->user()->isAdmin())
                             <th class="py-3 px-3.5 text-center">SELESAI</th>
-                            @endif
                             <th class="py-3 px-3.5 text-right">AKSI</th>
                         </tr>
                     </thead>
@@ -184,8 +203,16 @@
                                     </div>
                                 </div>
                             </td>
-                            <td class="py-3 px-3.5 font-mono text-xs font-bold text-[var(--text)]">
-                                {{ $task->document_number ?: '-' }}
+                            @php
+                                $docParts = explode('/', $task->document_number ?? '');
+                                $docIdPa = trim($docParts[0] ?? '');
+                                $periode = isset($docParts[1]) ? trim($docParts[1]) : null;
+                            @endphp
+                            <td class="py-3 px-3.5 font-mono text-xs">
+                                <div class="font-bold text-[var(--text)]">{{ $docIdPa ?: ($task->document_number ?: '-') }}</div>
+                                @if($periode)
+                                    <div class="text-[11px] text-[var(--text-muted)] mt-0.5">{{ $periode }}</div>
+                                @endif
                             </td>
                             <td class="py-3 px-3.5 max-w-xs">
                                 <div class="font-bold text-[var(--text)] truncate" title="{{ $task->service_type ?: $task->title }}">
@@ -234,19 +261,17 @@
                             <td class="py-3 px-3.5 min-w-[200px] max-w-xs">
                                 @include('tasks.partials.comment-cell', ['task' => $task])
                             </td>
-                            @if(!auth()->user()->isAdmin())
                             <td class="py-3 px-3.5 text-center">
                                 @include('tasks.partials.complete-checkbox', ['task' => $task, 'mode' => 'table'])
                             </td>
-                            @endif
                             <td class="py-3 px-3.5 text-right">
                                 <div class="flex items-center justify-end gap-1.5">
-                                    <a href="{{ route('tasks.show', ['task' => $task, 'return_to' => request()->fullUrl()]) }}" 
+                                    <a href="{{ route('tasks.show', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
                                        class="px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] text-[var(--text)] hover:bg-blue-600 hover:text-white font-semibold text-xs border border-[var(--border)] transition-colors">
                                         Detail
                                     </a>
                                     @if(auth()->user()->isAdmin())
-                                    <a href="{{ route('tasks.edit', ['task' => $task, 'return_to' => request()->fullUrl()]) }}" 
+                                    <a href="{{ route('tasks.edit', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
                                        class="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors" title="Edit Tugas">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                                     </a>
@@ -256,7 +281,7 @@
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="{{ 9 + (!auth()->user()->isAdmin() ? 1 : 0) }}" class="py-8 text-center text-[var(--text-muted)] italic">
+                            <td colspan="10" class="py-8 text-center text-[var(--text-muted)] italic">
                                 @if(request()->filled('month') || request()->filled('year'))
                                     Tidak ada tugas pada bulan ini.
                                 @else
@@ -275,7 +300,7 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <span>Menampilkan {{ $tasks->firstItem() ?: 0 }} - {{ $tasks->lastItem() ?: 0 }} dari {{ $tasks->total() }} data</span>
                     <form method="GET" action="{{ route('tasks.exception.customer', $customerSlug) }}" class="inline-flex items-center gap-1.5">
-                        @foreach(request()->except(['per_page', 'page']) as $k => $v)
+                        @foreach(request()->except(['per_page', 'page', 'back_to']) as $k => $v)
                             @if(is_array($v))
                                 @foreach($v as $arrVal)
                                     <input type="hidden" name="{{ $k }}[]" value="{{ $arrVal }}">
@@ -284,6 +309,9 @@
                                 <input type="hidden" name="{{ $k }}" value="{{ $v }}">
                             @endif
                         @endforeach
+                        @if($safeBackTo !== '')
+                            <input type="hidden" name="back_to" value="{{ $safeBackTo }}">
+                        @endif
                         <label for="detail_per_page_select" class="text-[11px] font-semibold text-[var(--text-muted)]">Per halaman:</label>
                         <select id="detail_per_page_select" name="per_page" onchange="this.form.submit()" class="py-1 px-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--text)] focus:ring-1 focus:ring-blue-500">
                             @foreach([25, 50, 100, 200, 500] as $size)

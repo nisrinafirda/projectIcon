@@ -7,6 +7,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class IconTaskFeatureTest extends TestCase
@@ -691,7 +692,7 @@ class IconTaskFeatureTest extends TestCase
         $this->assertEquals('UNIVERSITAS MUHAMMADIYAH MALANG', $task->customer_name);
         $this->assertEquals('malang', $task->kp);
         $this->assertEquals('publik', $task->kategori_segmen);
-        $this->assertEquals('pending', $task->status);
+        $this->assertEquals('in_progress', $task->status);
         $this->assertEquals('[Status Excel: On Process]', $task->submission_notes);
         $this->assertStringContainsString('Harga Baru: Rp 5.795.000', $task->description);
     }
@@ -811,6 +812,72 @@ class IconTaskFeatureTest extends TestCase
         $response->assertDontSee('141601002040 / 2026-09');
         $response->assertDontSee('MANAGE SERVICE ROUTER BRONZE');
         $response->assertDontSee('id="details-group-0"', false);
+    }
+
+    public function test_exception_page_summary_cards_shows_done_metrics_and_hides_exception_close(): void
+    {
+        // 2 Approved tasks: total Rp 7.500.000
+        Task::factory()->create([
+            'category' => Task::CATEGORY_EXCEPTION,
+            'customer_name' => 'PT Pelanggan Selesai 1',
+            'status' => Task::STATUS_APPROVED,
+            'rp_exception' => 5000000.00,
+            'kp' => Task::KP_SURABAYA,
+        ]);
+        Task::factory()->create([
+            'category' => Task::CATEGORY_EXCEPTION,
+            'customer_name' => 'PT Pelanggan Selesai 2',
+            'status' => Task::STATUS_APPROVED,
+            'rp_exception' => 2500000.00,
+            'kp' => Task::KP_MALANG,
+        ]);
+
+        // 2 In Progress tasks: total Rp 7.500.000
+        Task::factory()->create([
+            'category' => Task::CATEGORY_EXCEPTION,
+            'customer_name' => 'PT Pelanggan Proses 1',
+            'status' => Task::STATUS_IN_PROGRESS,
+            'rp_exception' => 7500000.00,
+            'kp' => Task::KP_MADIUN,
+        ]);
+        Task::factory()->create([
+            'category' => Task::CATEGORY_EXCEPTION,
+            'customer_name' => 'PT Pelanggan Proses 2',
+            'status' => Task::STATUS_IN_PROGRESS,
+            'rp_exception' => 0.00,
+            'kp' => Task::KP_JEMBER,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.category', 'exception'));
+
+        $response->assertStatus(200);
+
+        // Card EXCEPTION CLOSE and NET SELISIH / DELTA should NOT exist
+        $response->assertDontSee('EXCEPTION CLOSE');
+        $response->assertDontSee('NET SELISIH / DELTA');
+
+        // Card STATUS SELESAI (DONE) should exist and display correct values
+        $response->assertSee('STATUS SELESAI (DONE)');
+        $response->assertSee('Rp 7,5 Jt (50% dari total Rp Exception)');
+
+        // Verify metrics in view
+        $metrics = $response->viewData('categoryMetrics');
+        $this->assertEquals(4, $metrics['total']);
+        $this->assertEquals(2, $metrics['done']);
+        $this->assertEquals(7500000.0, $metrics['done_rp']);
+        $this->assertEquals('Rp 7,5 Jt', $metrics['done_rp_formatted']);
+        $this->assertEquals(50.0, $metrics['done_rp_percent']);
+        $this->assertEquals('Rp 7,5 Jt (50% dari total Rp Exception)', $metrics['done_sub']);
+
+        // Verify KP stats Selesai and Proses
+        $this->assertEquals(1, $metrics['kp_stats']['surabaya']['done']);
+        $this->assertEquals(0, $metrics['kp_stats']['surabaya']['process']);
+        $this->assertEquals(1, $metrics['kp_stats']['malang']['done']);
+        $this->assertEquals(0, $metrics['kp_stats']['malang']['process']);
+        $this->assertEquals(0, $metrics['kp_stats']['madiun']['done']);
+        $this->assertEquals(1, $metrics['kp_stats']['madiun']['process']);
+        $this->assertEquals(0, $metrics['kp_stats']['jember']['done']);
+        $this->assertEquals(1, $metrics['kp_stats']['jember']['process']);
     }
 
     public function test_exception_customer_detail_page_loads_successfully(): void
@@ -996,7 +1063,7 @@ class IconTaskFeatureTest extends TestCase
         $response2->assertDontSee('DINAS KOMINFO MOJOKERTO');
     }
 
-    public function test_harga_baru_column_is_displayed_only_for_so_open_category(): void
+    public function test_harga_baru_column_is_displayed_for_so_open_and_baa_categories(): void
     {
         $soTask = Task::factory()->create([
             'category' => Task::CATEGORY_SSO_OPEN,
@@ -1014,16 +1081,30 @@ class IconTaskFeatureTest extends TestCase
             'user_id' => $this->user->id,
         ]);
 
+        $baiTask = Task::factory()->create([
+            'category' => Task::CATEGORY_BAI,
+            'customer_name' => 'PT BAI TEST',
+            'sales_name' => 'SALES AGENT THREE',
+            'harga_baru' => 25000000,
+            'user_id' => $this->user->id,
+        ]);
+
         // Access SO Open category
         $responseSo = $this->actingAs($this->admin)->get(route('tasks.category', 'sso_open'));
         $responseSo->assertOk();
         $responseSo->assertSee('Harga Baru');
         $responseSo->assertSee('Rp 15.000.000');
 
-        // Access BAA category - should NOT see Harga Baru column
+        // Access BAA category - should see Harga Baru column and value
         $responseBaa = $this->actingAs($this->admin)->get(route('tasks.category', 'baa'));
         $responseBaa->assertOk();
-        $responseBaa->assertDontSee('Harga Baru');
+        $responseBaa->assertSee('Harga Baru');
+        $responseBaa->assertSee('Rp 20.000.000');
+
+        // Access BAI category - should NOT see Harga Baru column
+        $responseBai = $this->actingAs($this->admin)->get(route('tasks.category', 'bai'));
+        $responseBai->assertOk();
+        $responseBai->assertDontSee('Harga Baru');
     }
 
     public function test_admin_dashboard_shows_diagram_per_kp_and_breakdown_cards(): void
@@ -1585,7 +1666,7 @@ class IconTaskFeatureTest extends TestCase
         $response->assertStatus(403);
     }
 
-    public function test_admin_cannot_toggle_via_employee_checkbox_endpoint(): void
+    public function test_admin_can_toggle_via_checkbox_endpoint(): void
     {
         $task = Task::factory()->create([
             'user_id' => $this->user->id,
@@ -1596,10 +1677,11 @@ class IconTaskFeatureTest extends TestCase
         $response = $this->actingAs($this->admin)
             ->post(route('tasks.toggle-complete', $task));
 
-        $response->assertStatus(403);
+        $response->assertRedirect();
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
     }
 
-    public function test_table_views_contain_selesai_column_for_user_and_hidden_for_admin(): void
+    public function test_table_views_contain_selesai_column_for_user_and_admin(): void
     {
         $task = Task::factory()->create([
             'category' => Task::CATEGORY_SSO_OPEN,
@@ -1618,11 +1700,12 @@ class IconTaskFeatureTest extends TestCase
         $userView->assertSee('toggleCompleteAjax('.$task->id.', false)', false);
         $userView->assertSee('openCommentEdit('.$task->id.')', false);
 
-        // Admin does NOT see "SELESAI" checkbox column
+        // Admin sees "SELESAI" checkbox column and can toggle
         $adminView = $this->actingAs($this->admin)
             ->get(route('tasks.customer', ['customer' => 'pt-checkbox-test']));
         $adminView->assertOk();
-        $adminView->assertDontSee('>SELESAI<', false);
+        $adminView->assertSee('>SELESAI<', false);
+        $adminView->assertSee('toggleCompleteAjax('.$task->id.', false)', false);
     }
 
     public function test_employee_inline_comment_and_overdue_check_flow(): void
@@ -1720,5 +1803,287 @@ class IconTaskFeatureTest extends TestCase
         $adminVerifResp->assertOk();
         $adminVerifResp->assertSee('PT OVERDUE TEST');
         $adminVerifResp->assertSee('Alasan: Menunggu material kabel FO');
+    }
+
+    public function test_baa_category_metrics_and_customer_harga_baru_totals(): void
+    {
+        // 1. Create BAA tasks
+        $custPublik = 'DINAS KOMUNIKASI DAN INFORMATIKA';
+        $custPln = 'PT PLN PERSERO ULP TUBAN';
+
+        $task1 = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => $custPublik,
+            'document_number' => 'BAA-TUBAN-01',
+            'harga_baru' => 100000000.00,
+            'kategori_segmen' => Task::SEGMEN_PUBLIK,
+            'kp' => Task::KP_SURABAYA,
+            'status' => Task::STATUS_APPROVED,
+            'user_id' => $this->user->id,
+        ]);
+
+        $task2 = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => $custPublik,
+            'document_number' => 'BAA-TUBAN-02',
+            'harga_baru' => 31294000.00,
+            'kategori_segmen' => Task::SEGMEN_PUBLIK,
+            'kp' => Task::KP_SURABAYA,
+            'status' => Task::STATUS_IN_PROGRESS,
+            'user_id' => $this->user->id,
+        ]);
+
+        $task3 = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => $custPln,
+            'document_number' => 'BAA-PLN-01',
+            'harga_baru' => 43550000.00,
+            'kategori_segmen' => Task::SEGMEN_PLN,
+            'kp' => Task::KP_JEMBER,
+            'status' => Task::STATUS_IN_PROGRESS,
+            'user_id' => $this->user->id,
+        ]);
+
+        // Non-BAA task should NOT affect BAA numbers
+        Task::factory()->create([
+            'category' => Task::CATEGORY_SSO_OPEN,
+            'customer_name' => 'OTHER CUST',
+            'document_number' => 'SSO-01',
+            'harga_baru' => 500000000.00,
+            'user_id' => $this->user->id,
+        ]);
+
+        // 2. Visit BAA category index
+        $response = $this->actingAs($this->admin)->get(route('tasks.category', 'baa'));
+        $response->assertOk();
+
+        // Net Selisih card must NOT be shown for BAA
+        $response->assertDontSee('NET SELISIH / DELTA');
+
+        // Total Nilai Baru should be 100M + 31.294M + 43.55M = 174.844.000 -> 174,8 Jt
+        $response->assertSee('Rp 174,8 Jt');
+        // PLN: 43,6 Jt | Publik: 131,3 Jt
+        $response->assertSee('PLN: Rp 43,6 Jt | Publik: Rp 131,3 Jt');
+
+        // KP Nilai Proyek Baru and Porsi PLN/Publik
+        $response->assertSee('Rp 131,3 Jt'); // Surabaya sum
+        $response->assertSee('0 PLN / 2 Publik'); // Surabaya porsi
+        $response->assertSee('Rp 43,6 Jt'); // Jember sum
+        $response->assertSee('1 PLN / 0 Publik'); // Jember porsi
+
+        // Outer table customer row should show SUM of harga_baru for each customer
+        // custPublik: 100.000.000 + 31.294.000 = 131.294.000
+        $response->assertSee('Rp 131.294.000');
+        // custPln: 43.550.000
+        $response->assertSee('Rp 43.550.000');
+
+        // 3. Visit customer detail drilldown for custPublik
+        $customerSlug = Str::slug($custPublik);
+        $drilldown = $this->actingAs($this->admin)->get(route('tasks.category.customer', [
+            'category' => 'baa',
+            'customer' => $customerSlug,
+        ]));
+        $drilldown->assertOk();
+
+        // Customer detail top card shows total customer harga baru
+        $drilldown->assertSee('Rp 131.294.000');
+        // Each individual SID shows its own harga baru
+        $drilldown->assertSee('Rp 100.000.000');
+        $drilldown->assertSee('Rp 31.294.000');
+    }
+
+    public function test_admin_can_save_comment_on_sales_task_and_sales_sees_it(): void
+    {
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => 'PT MAJU BERSAMA',
+            'user_id' => $this->user->id,
+            'comments' => null,
+        ]);
+
+        // Admin saves comment via AJAX
+        $response = $this->actingAs($this->admin)
+            ->postJson(route('tasks.save-comment', $task), [
+                'comments' => 'Catatan dari admin: prioritas tinggi',
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'comments' => 'Catatan dari admin: prioritas tinggi',
+                'comment_updated_by_name' => $this->admin->name,
+            ]);
+
+        $task->refresh();
+        $this->assertSame('Catatan dari admin: prioritas tinggi', $task->comments);
+        $this->assertEquals($this->admin->id, $task->comment_updated_by);
+        $this->assertNotNull($task->comment_updated_at);
+
+        // Sales accesses customer detail page and sees the updated comment and metadata
+        $customerSlug = Str::slug('PT MAJU BERSAMA');
+        $this->actingAs($this->user)
+            ->get(route('tasks.category.customer', ['category' => 'baa', 'customer' => $customerSlug]))
+            ->assertOk()
+            ->assertSee('Catatan dari admin: prioritas tinggi')
+            ->assertSee('Terakhir diubah oleh '.$this->admin->name);
+    }
+
+    public function test_sales_updates_comment_and_admin_sees_latest_comment(): void
+    {
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_SSO_OPEN,
+            'customer_name' => 'PT PELANGGAN SO',
+            'user_id' => $this->user->id,
+            'comments' => 'Komentar awal oleh admin',
+            'comment_updated_by' => $this->admin->id,
+            'comment_updated_at' => now()->subDay(),
+        ]);
+
+        // Sales updates the comment
+        $response = $this->actingAs($this->user)
+            ->postJson(route('tasks.save-comment', $task), [
+                'comments' => 'Update dari sales: kabel FO sudah tiba',
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'comments' => 'Update dari sales: kabel FO sudah tiba',
+                'comment_updated_by_name' => $this->user->name,
+            ]);
+
+        $task->refresh();
+        $this->assertSame('Update dari sales: kabel FO sudah tiba', $task->comments);
+        $this->assertEquals($this->user->id, $task->comment_updated_by);
+
+        // Admin accesses customer detail and sees the updated comment and metadata
+        $customerSlug = Str::slug('PT PELANGGAN SO');
+        $this->actingAs($this->admin)
+            ->get(route('tasks.category.customer', ['category' => 'sso_open', 'customer' => $customerSlug]))
+            ->assertOk()
+            ->assertSee('Update dari sales: kabel FO sudah tiba')
+            ->assertSee('Terakhir diubah oleh '.$this->user->name);
+    }
+
+    public function test_sales_cannot_edit_comment_of_another_sales_task(): void
+    {
+        $otherSales = User::factory()->create(['role' => 'user']);
+        $task = Task::factory()->create([
+            'user_id' => $otherSales->id,
+            'comments' => 'Original comment',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson(route('tasks.save-comment', $task), [
+                'comments' => 'Hacked comment',
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('Original comment', $task->fresh()->comments);
+    }
+
+    public function test_admin_checks_completed_task_appears_in_verification_then_confirmed(): void
+    {
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => 'PT CHECKBOX ADMIN',
+            'user_id' => $this->user->id,
+            'status' => Task::STATUS_IN_PROGRESS,
+            'due_date' => now()->addDays(5),
+        ]);
+
+        // Admin checks completed checkbox via toggle-complete
+        $response = $this->actingAs($this->admin)
+            ->postJson(route('tasks.toggle-complete', $task));
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'is_submitted' => true,
+            ]);
+
+        $task->refresh();
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->status);
+        $this->assertEquals($this->admin->id, $task->done_marked_by);
+        $this->assertNotNull($task->done_marked_at);
+        $this->assertNull($task->confirmed_at);
+
+        // Appears in admin verification queue
+        $verifResponse = $this->actingAs($this->admin)->get(route('admin.verifikasi'));
+        $verifResponse->assertOk();
+        $verifResponse->assertSee('PT CHECKBOX ADMIN');
+
+        // Admin approves task in Verifikasi
+        $reviewResponse = $this->actingAs($this->admin)->post(route('tasks.review', $task), [
+            'action' => 'approve',
+            'admin_notes' => 'Disetujui oleh admin',
+        ]);
+
+        $reviewResponse->assertRedirect();
+        $task->refresh();
+        $this->assertSame(Task::STATUS_APPROVED, $task->status);
+        $this->assertNotNull($task->confirmed_at);
+        $this->assertEquals($this->admin->id, $task->confirmed_by);
+
+        // Task is no longer in Verifikasi queue
+        $this->actingAs($this->admin)->get(route('admin.verifikasi'))
+            ->assertDontSee('PT CHECKBOX ADMIN');
+    }
+
+    public function test_admin_unchecks_before_confirmation_exits_verification_queue(): void
+    {
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_BAI,
+            'customer_name' => 'PT UNCHECK ADMIN',
+            'user_id' => $this->user->id,
+            'status' => Task::STATUS_SUBMITTED,
+            'done_marked_at' => now(),
+            'done_marked_by' => $this->admin->id,
+        ]);
+
+        // Currently in verification
+        $this->actingAs($this->admin)->get(route('admin.verifikasi'))
+            ->assertSee('PT UNCHECK ADMIN');
+
+        // Admin unchecks before confirmation
+        $response = $this->actingAs($this->admin)
+            ->postJson(route('tasks.toggle-complete', $task), ['uncheck' => 1]);
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'is_completed' => false,
+            ]);
+
+        $task->refresh();
+        $this->assertSame(Task::STATUS_IN_PROGRESS, $task->status);
+        $this->assertNull($task->done_marked_at);
+        $this->assertNull($task->done_marked_by);
+
+        // Exited verification queue
+        $this->actingAs($this->admin)->get(route('admin.verifikasi'))
+            ->assertDontSee('PT UNCHECK ADMIN');
+    }
+
+    public function test_admin_cannot_toggle_overdue_task_without_comment(): void
+    {
+        $task = Task::factory()->create([
+            'category' => Task::CATEGORY_BAA,
+            'customer_name' => 'PT OVERDUE ADMIN TEST',
+            'user_id' => $this->user->id,
+            'status' => Task::STATUS_IN_PROGRESS,
+            'due_date' => now()->subDays(3),
+            'comments' => null,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->postJson(route('tasks.toggle-complete', $task))
+            ->assertStatus(422)
+            ->assertJson([
+                'success' => false,
+                'requires_reason' => true,
+            ]);
+
+        $this->assertSame(Task::STATUS_IN_PROGRESS, $task->fresh()->status);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
@@ -28,6 +29,10 @@ Route::middleware('auth')->group(function (): void {
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Riwayat Aktivitas
+    Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+    Route::get('/activity-logs/{activityLog}/details', [ActivityLogController::class, 'details'])->name('activity-logs.details');
 
     // Ganti Password Mandiri
     Route::get('/profile/password', [PasswordController::class, 'edit'])->name('password.edit');

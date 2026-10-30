@@ -31,6 +31,16 @@
         </div>
         @endif
 
+        @if($errors->has('file'))
+        <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-3 shadow-2xs">
+            <span class="text-rose-600 text-lg">⚠️</span>
+            <div>
+                <h4 class="font-bold text-rose-900">Import Gagal Diproses:</h4>
+                <p class="text-rose-800 mt-0.5 leading-relaxed font-medium">{{ $errors->first('file') }}</p>
+            </div>
+        </div>
+        @endif
+
         @if(session('import_errors') && count(session('import_errors')) > 0)
         <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
             <h4 class="font-bold mb-1">Catatan Import Baris:</h4>
@@ -108,9 +118,9 @@
                     </label>
                     <div class="p-6 border-2 border-dashed border-[var(--border)] hover:border-blue-500 rounded-2xl bg-[var(--surface-2)]/60 text-center transition-colors">
                         <svg class="w-10 h-10 text-blue-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                        <input type="file" id="file" name="file" required accept=".xlsx,.xls,.csv"
+                        <input type="file" id="file" name="file" required accept=".xlsx,.xls,.csv,.txt"
                             class="text-xs text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer">
-                        <p class="text-[11px] text-[var(--text-muted)] mt-2">Mendukung format Microsoft Excel (.xlsx) dan Comma Separated Values (.csv)</p>
+                        <p class="text-[11px] text-[var(--text-muted)] mt-2">Mendukung format Microsoft Excel (.xlsx, .xls) dan CSV (.csv, .txt) hingga 20 MB</p>
                     </div>
                     @error('file')
                         <p class="mt-1.5 text-xs text-rose-500 font-semibold">{{ $message }}</p>

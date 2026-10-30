@@ -1,7 +1,12 @@
 @php
     $pageCategory = $category ?? request()->route('category');
     $defaultBackRoute = $pageCategory ? route('tasks.category', $pageCategory) : route('tasks.index');
-    $backUrl = request()->query('back_to', $defaultBackRoute);
+    $backCandidate = request()->query('back_to') ?: url()->previous();
+    $backUrl = \App\Services\UrlSecurity::getSafeInternalUrl($backCandidate, $defaultBackRoute);
+    $safeBackTo = \App\Services\UrlSecurity::getSafeInternalUrl(request()->query('back_to'), '');
+    $currentCleanUrl = $safeBackTo === '' && request()->filled('back_to')
+        ? request()->fullUrlWithQuery(['back_to' => null])
+        : request()->fullUrl();
     $backLabel = $currentCategoryLabel ? 'Kembali ke ' . $currentCategoryLabel : 'Kembali ke Semua Tugas';
     $formAction = $pageCategory 
         ? route('tasks.category.customer', ['category' => $pageCategory, 'customer' => $customerSlug]) 
@@ -17,6 +22,7 @@
         <div class="flex flex-col gap-4">
             <div>
                 <a href="{{ $backUrl }}" 
+                   onclick="if (window.history.length > 1 && document.referrer && document.referrer.includes(new URL('{{ $backUrl }}', window.location.origin).pathname)) { window.history.back(); return false; }"
                    class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] text-xs font-bold transition-all shadow-2xs">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
                     <span>{{ $backLabel }}</span>
@@ -33,6 +39,11 @@
                             <h1 class="text-lg md:text-xl font-black text-[var(--text)] tracking-tight">
                                 {{ $customerName ?: 'Tanpa Nama Pelanggan' }}
                             </h1>
+                            @if(($pageCategory === 'sso_open' || !$pageCategory) && $tasks->getCollection()->contains(fn ($t) => $t->is_ppb))
+                                <span class="px-2 py-0.5 rounded text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800">
+                                    PPB
+                                </span>
+                            @endif
                             @if($kpLabels->isNotEmpty())
                                 @foreach($kpLabels as $kp)
                                 <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">
@@ -56,7 +67,7 @@
                         <div class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Total Dokumen / SID</div>
                         <div class="text-base font-black text-[var(--text)]">{{ number_format($totalAllSidCount, 0, ',', '.') }} Dokumen</div>
                     </div>
-                    @if($pageCategory === 'sso_open' || (isset($totalCustomerHargaBaru) && $totalCustomerHargaBaru > 0))
+                    @if(in_array($pageCategory, ['sso_open', 'baa']) || (isset($totalCustomerHargaBaru) && $totalCustomerHargaBaru > 0))
                     <div class="px-4 py-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-right">
                         <div class="text-[10px] font-bold uppercase tracking-wider text-cyan-600">Total Harga Baru</div>
                         <div class="text-base font-black text-cyan-600">Rp {{ number_format((float) ($totalCustomerHargaBaru ?? 0), 0, ',', '.') }}</div>
@@ -68,19 +79,26 @@
 
         <!-- Filter Bar -->
         <div class="theme-card p-4 border border-[var(--border)] shadow-xs">
-            <form method="GET" action="{{ $formAction }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 {{ $pageCategory ? 'lg:grid-cols-6' : 'lg:grid-cols-7' }} gap-3">
-                @if(request()->filled('back_to'))
-                    <input type="hidden" name="back_to" value="{{ request()->query('back_to') }}">
+            <form method="GET" action="{{ $formAction }}" 
+                  class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 {{ $pageCategory ? 'lg:grid-cols-6' : 'lg:grid-cols-7' }} gap-3"
+                  data-auto-filter="true">
+                @if($safeBackTo !== '')
+                    <input type="hidden" name="back_to" value="{{ $safeBackTo }}">
                 @endif
                 @if(request()->filled('per_page'))
                     <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 @endif
 
                 <!-- Search -->
-                <div>
+                <div class="relative">
                     <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">Cari SID / Layanan</label>
                     <input type="text" name="search" value="{{ request()->query('search') }}" placeholder="Cari ID PA, Layanan, Sales..."
-                           class="w-full px-3 py-2 rounded-xl text-xs bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-blue-500">
+                           autocomplete="off"
+                           class="w-full pl-3 pr-9 py-2 rounded-xl text-xs bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <svg class="search-spinner w-4 h-4 text-blue-500 animate-spin absolute right-3 top-7 hidden" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                 </div>
 
                 <!-- Kategori Filter (hanya jika halaman Semua Tugas) -->
@@ -146,19 +164,22 @@
 
                 <!-- Action Filter -->
                 <div class="flex items-end gap-2">
-                    <button type="submit" class="flex-1 py-2 rounded-xl theme-btn-primary text-white text-xs font-bold shadow-xs">
-                        Terapkan
-                    </button>
+                    <noscript>
+                        <button type="submit" class="flex-1 py-2 rounded-xl theme-btn-primary text-white text-xs font-bold shadow-xs cursor-pointer">
+                            Terapkan
+                        </button>
+                    </noscript>
                     <a href="{{ $pageCategory ? route('tasks.category.customer', ['category' => $pageCategory, 'customer' => $customerSlug, 'back_to' => request()->query('back_to')]) : route('tasks.customer', ['customer' => $customerSlug, 'back_to' => request()->query('back_to')]) }}" 
-                       class="px-3 py-2 rounded-xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] text-xs font-semibold">
-                        Reset
+                       class="w-full flex items-center justify-center py-2 px-3 rounded-xl bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] text-xs font-semibold transition-colors shadow-2xs">
+                        <svg class="w-3.5 h-3.5 mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset Filter
                     </a>
                 </div>
             </form>
         </div>
 
         <!-- Table Card -->
-        <div class="theme-card border border-[var(--border)] shadow-xs rounded-2xl overflow-hidden">
+        <div id="task-table-container" class="theme-card border border-[var(--border)] shadow-xs rounded-2xl overflow-hidden">
             <!-- Header Table -->
             <div class="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-2)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div class="flex items-center gap-2">
@@ -181,15 +202,13 @@
                             <th class="py-3 px-3.5">{{ $pageCategory === 'kontrak_exp' ? 'NO KONTRAK / ID PA' : 'ID PA / SID' }}</th>
                             <th class="py-3 px-3.5">NAMA LAYANAN</th>
                             <th class="py-3 px-3.5">SALES</th>
-                            @if($pageCategory === 'sso_open')
+                            @if(in_array($pageCategory, ['sso_open', 'baa']))
                             <th class="py-3 px-3.5 text-right">HARGA BARU</th>
                             @endif
                             <th class="py-3 px-3.5">STATUS</th>
                             <th class="py-3 px-3.5">DEADLINE</th>
                             <th class="py-3 px-3.5 min-w-[200px] w-64">KOMENTAR</th>
-                            @if(!auth()->user()->isAdmin())
                             <th class="py-3 px-3.5 text-center">SELESAI</th>
-                            @endif
                             <th class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">AKSI</th>
                         </tr>
                     </thead>
@@ -239,7 +258,14 @@
                                         </div>
                                     @endif
                                 @else
-                                    <div class="font-bold text-[var(--text)]">{{ $task->document_number ?: '-' }}</div>
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <span class="font-bold text-[var(--text)]">{{ $task->document_number ?: '-' }}</span>
+                                        @if($task->is_ppb)
+                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800" title="PPB">
+                                                PPB
+                                            </span>
+                                        @endif
+                                    </div>
                                     @if($task->mutation)
                                         <div class="mt-1">
                                             <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] font-sans tracking-normal">
@@ -257,9 +283,9 @@
                             <td class="py-3 px-3.5 text-[var(--text)] font-medium">
                                 {{ $task->sales_name ?: (optional($task->user)->name ?: '-') }}
                             </td>
-                            @if($pageCategory === 'sso_open')
+                            @if(in_array($pageCategory, ['sso_open', 'baa']))
                             <td class="py-3 px-3.5 text-right font-mono font-bold text-[var(--text)] whitespace-nowrap">
-                                Rp {{ number_format((float) $task->harga_baru, 0, ',', '.') }}
+                                Rp {{ number_format((float) ($task->harga_baru ?? 0), 0, ',', '.') }}
                             </td>
                             @endif
                             <td class="py-3 px-3.5">
@@ -298,19 +324,17 @@
                             <td class="py-3 px-3.5 min-w-[200px] max-w-xs">
                                 @include('tasks.partials.comment-cell', ['task' => $task])
                             </td>
-                            @if(!auth()->user()->isAdmin())
                             <td class="py-3 px-3.5 text-center">
                                 @include('tasks.partials.complete-checkbox', ['task' => $task, 'mode' => 'table'])
                             </td>
-                            @endif
                             <td class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">
                                 <div class="flex items-center {{ auth()->user()->isAdmin() ? 'justify-end' : 'justify-center' }} gap-1.5">
-                                    <a href="{{ route('tasks.show', ['task' => $task, 'return_to' => request()->fullUrl()]) }}" 
+                                    <a href="{{ route('tasks.show', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
                                        class="px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] text-[var(--text)] hover:bg-blue-600 hover:text-white font-semibold text-xs border border-[var(--border)] transition-colors">
                                         Detail
                                     </a>
                                     @if(auth()->user()->isAdmin())
-                                    <a href="{{ route('tasks.edit', ['task' => $task, 'return_to' => request()->fullUrl()]) }}" 
+                                    <a href="{{ route('tasks.edit', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
                                        class="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors" title="Edit Tugas">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                                     </a>
@@ -320,7 +344,7 @@
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="{{ ($pageCategory === 'sso_open' ? 9 : 8) + (!auth()->user()->isAdmin() ? 1 : 0) }}" class="py-8 text-center text-[var(--text-muted)] italic">
+                            <td colspan="{{ in_array($pageCategory, ['sso_open', 'baa']) ? 10 : 9 }}" class="py-8 text-center text-[var(--text-muted)] italic">
                                 @if(request()->filled('month') || request()->filled('year'))
                                     Tidak ada tugas pada bulan ini.
                                 @else
@@ -339,7 +363,7 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <span>Menampilkan {{ $tasks->firstItem() ?: 0 }} - {{ $tasks->lastItem() ?: 0 }} dari {{ $tasks->total() }} data</span>
                     <form method="GET" action="{{ $formAction }}" class="inline-flex items-center gap-1.5">
-                        @foreach(request()->except(['per_page', 'page']) as $k => $v)
+                        @foreach(request()->except(['per_page', 'page', 'back_to']) as $k => $v)
                             @if(is_array($v))
                                 @foreach($v as $arrVal)
                                     <input type="hidden" name="{{ $k }}[]" value="{{ $arrVal }}">
@@ -348,6 +372,9 @@
                                 <input type="hidden" name="{{ $k }}" value="{{ $v }}">
                             @endif
                         @endforeach
+                        @if($safeBackTo !== '')
+                            <input type="hidden" name="back_to" value="{{ $safeBackTo }}">
+                        @endif
                         <label for="detail_per_page_select" class="text-[11px] font-semibold text-[var(--text-muted)]">Per halaman:</label>
                         <select id="detail_per_page_select" name="per_page" onchange="this.form.submit()" class="py-1 px-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--text)] focus:ring-1 focus:ring-blue-500">
                             @foreach([25, 50, 100, 200, 500] as $size)

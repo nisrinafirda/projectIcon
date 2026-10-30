@@ -32,13 +32,20 @@
 
         <!-- Filter Bar -->
         <div class="theme-card p-4 border border-[var(--border)] shadow-xs">
-            <form method="GET" action="{{ route('admin.verifikasi') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <form method="GET" action="{{ route('admin.verifikasi') }}" 
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+                  data-auto-filter="true">
                 <!-- Search -->
                 <div class="relative">
                     <input type="text" name="search" value="{{ request('search') }}"
                         placeholder="Cari judul, nomor dokumen, customer..."
-                        class="w-full pl-9 pr-4 py-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-[var(--surface)] transition-all">
-                    <svg class="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        autocomplete="off"
+                        class="w-full pl-9 pr-9 py-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-[var(--surface)] transition-all">
+                    <svg class="search-icon w-4 h-4 text-[var(--text-muted)] absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <svg class="search-spinner w-4 h-4 text-blue-500 animate-spin absolute right-3 top-2.5 hidden" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                 </div>
 
                 <!-- Kategori Filter -->
@@ -67,20 +74,23 @@
 
                 <!-- Actions -->
                 <div class="flex items-center gap-2">
-                    <button type="submit" class="theme-btn-primary flex-1 py-2 px-3 text-xs font-semibold cursor-pointer">
-                        Filter
-                    </button>
-                    @if(request()->hasAny(['search', 'category', 'kp']))
-                    <a href="{{ route('admin.verifikasi') }}" class="py-2 px-3 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)] font-semibold text-xs transition-colors">
-                        Reset
+                    <noscript>
+                        <button type="submit" class="theme-btn-primary flex-1 py-2 px-3 text-xs font-semibold cursor-pointer">
+                            Filter
+                        </button>
+                    </noscript>
+                    <a href="{{ route('admin.verifikasi') }}" 
+                       class="w-full flex items-center justify-center py-2 px-3 rounded-xl bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] font-semibold text-xs transition-colors shadow-2xs"
+                       title="Kosongkan semua filter">
+                        <svg class="w-3.5 h-3.5 mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset Filter
                     </a>
-                    @endif
                 </div>
             </form>
         </div>
 
         <!-- Table -->
-        <div class="theme-card border border-[var(--border)] shadow-xs overflow-hidden">
+        <div id="task-table-container" class="theme-card border border-[var(--border)] shadow-xs overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-[var(--text)]">
                     <thead class="bg-[var(--surface-2)] text-[var(--text-muted)] font-semibold uppercase tracking-wider text-[11px] border-b border-[var(--border)]">

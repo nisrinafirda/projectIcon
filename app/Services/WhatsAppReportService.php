@@ -109,11 +109,44 @@ class WhatsAppReportService
     }
 
     /**
-     * Check if a task is confirmed by admin (confirmed_at atau confirmed_by terisi).
+     * Check if a task is confirmed by admin (confirmed_at, confirmed_by, atau status approved).
      */
     public function isTaskConfirmed(Task $task): bool
     {
-        return ! empty($task->confirmed_at) || ! empty($task->confirmed_by);
+        return ! empty($task->confirmed_at)
+            || ! empty($task->confirmed_by)
+            || $task->status === Task::STATUS_APPROVED;
+    }
+
+    /**
+     * Check if a completed task qualifies to be shown in the SELESAI / DONE (HARI INI) section.
+     *
+     * Aturan:
+     * - Sudah dikonfirmasi admin (☑️): hanya jika tanggal konfirmasinya = hari ini (Asia/Jakarta).
+     * - Sudah dicentang sales tapi belum dikonfirmasi (✅ saja): tetap tampil sampai dikonfirmasi, tidak peduli tanggalnya.
+     * - Yang sudah ☑️ pada hari-hari sebelumnya tidak ditampilkan lagi.
+     * - Jika confirmed_at kosong pada data lama terkonfirmasi, fallback ke updated_at.
+     */
+    public function isTaskEligibleForDoneToday(Task $task): bool
+    {
+        if (! $this->isTaskCompleted($task)) {
+            return false;
+        }
+
+        if ($this->isTaskConfirmed($task)) {
+            $confirmedDate = $task->confirmed_at ?? $task->updated_at;
+            if (! $confirmedDate) {
+                return false;
+            }
+
+            $todayStr = Carbon::now('Asia/Jakarta')->toDateString();
+            $taskDateStr = Carbon::parse($confirmedDate)->timezone('Asia/Jakarta')->toDateString();
+
+            return $taskDateStr === $todayStr;
+        }
+
+        // Sudah dicentang sales tapi belum dikonfirmasi: tetap tampil
+        return true;
     }
 
     /**
@@ -158,6 +191,45 @@ class WhatsAppReportService
     }
 
     /**
+     * Check if a customer name is considered a "desa".
+     */
+    public function isDesaCustomer(string $customerName): bool
+    {
+        $upper = strtoupper(trim($customerName));
+
+        if (str_starts_with($upper, 'BENDAHARA PENGELUARAN DINAS')) {
+            return false;
+        }
+
+        return str_starts_with($upper, 'DESA ')
+            || str_starts_with($upper, 'BENDAHARA DESA')
+            || str_starts_with($upper, 'BEND DESA')
+            || str_starts_with($upper, 'BEND. DESA');
+    }
+
+    /**
+     * Determine termin period for a desa based on kendala text.
+     */
+    public function getDesaTerminPeriod(?string $kendala): string
+    {
+        $lower = strtolower((string) $kendala);
+
+        if (str_contains($lower, 'okt') && str_contains($lower, 'nov') && str_contains($lower, 'des')) {
+            return 'TERMIN OKT s.d DES';
+        }
+
+        if (str_contains($lower, 'juli') && (str_contains($lower, 'sept') || str_contains($lower, 'sep'))) {
+            return 'TERMIN JUL s.d SEP';
+        }
+
+        if (str_contains($lower, 'termin 3 bulan') || str_contains($lower, 'termin')) {
+            return 'TERMIN OKT s.d DES';
+        }
+
+        return 'TERMIN OKT s.d DES';
+    }
+
+    /**
      * Extract PIC first name(s) in uppercase, joined by '/' if multiple.
      *
      * @param  Collection<int, Task>  $tasks
@@ -189,92 +261,195 @@ class WhatsAppReportService
         $grouped = $tasks->groupBy(fn ($t) => trim((string) $t->customer_name));
 
         $onProcessCustomers = [];
-        $doneCustomers = [];
+        $desaGroups = [];
+        $nonDesaCustomers = [];
+        $doneAllCustomers = [];
+        $doneTodayCustomers = [];
 
         foreach ($grouped as $customerName => $custTasks) {
             $unfinishedTasks = $custTasks->filter(fn ($t) => ! $this->isTaskCompleted($t));
-            $finishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $allFinishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $todayFinishedTasks = $allFinishedTasks->filter(fn ($t) => $this->isTaskEligibleForDoneToday($t));
 
             if ($unfinishedTasks->isNotEmpty()) {
                 $totalRp = (float) $unfinishedTasks->sum(fn ($t) => (float) ($t->rp_exception ?? 0));
                 $kendala = $unfinishedTasks->map(fn ($t) => $t->comments ?: $t->late_reason)->filter()->last() ?: '-';
+                $pic = $this->extractPicName($unfinishedTasks);
 
-                $onProcessCustomers[] = [
+                $custItem = [
                     'name' => $customerName ?: 'Tanpa Nama Pelanggan',
                     'count' => $unfinishedTasks->count(),
                     'total_rp' => $totalRp,
-                    'pic' => $this->extractPicName($unfinishedTasks),
+                    'pic' => $pic,
                     'kendala' => $kendala,
                     'marker' => '❌',
+                    'tasks' => $unfinishedTasks,
+                ];
+
+                $onProcessCustomers[] = $custItem;
+
+                if ($this->isDesaCustomer($customerName ?: '')) {
+                    $periode = $this->getDesaTerminPeriod($kendala);
+                    $desaGroups[$periode][] = $custItem;
+                } else {
+                    $nonDesaCustomers[] = $custItem;
+                }
+            }
+
+            if ($allFinishedTasks->isNotEmpty()) {
+                $totalRp = (float) $allFinishedTasks->sum(fn ($t) => (float) ($t->rp_exception ?? 0));
+
+                $doneAllCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $allFinishedTasks->count(),
+                    'total_rp' => $totalRp,
                 ];
             }
 
-            if ($finishedTasks->isNotEmpty()) {
-                $totalRp = (float) $finishedTasks->sum(fn ($t) => (float) ($t->rp_exception ?? 0));
-                $progress = $finishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
+            if ($todayFinishedTasks->isNotEmpty()) {
+                $totalRp = (float) $todayFinishedTasks->sum(fn ($t) => (float) ($t->rp_exception ?? 0));
+                $progress = $todayFinishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
 
-                $doneCustomers[] = [
+                $doneTodayCustomers[] = [
                     'name' => $customerName ?: 'Tanpa Nama Pelanggan',
-                    'count' => $finishedTasks->count(),
+                    'count' => $todayFinishedTasks->count(),
                     'total_rp' => $totalRp,
-                    'pic' => $this->extractPicName($finishedTasks),
+                    'pic' => $this->extractPicName($todayFinishedTasks),
                     'progress' => $progress,
-                    'marker' => $this->getCustomerStatusMarker($finishedTasks),
+                    'marker' => $this->getCustomerStatusMarker($todayFinishedTasks),
                 ];
             }
         }
 
-        // Urut nominal rp_exception terbesar
-        usort($onProcessCustomers, fn ($a, $b) => $b['total_rp'] <=> $a['total_rp']);
-        usort($doneCustomers, fn ($a, $b) => $b['total_rp'] <=> $a['total_rp']);
+        $fmtRp = fn (float $val) => 'Rp '.number_format($val, 0, ',', '.');
 
+        // Build display items for ON PROCESS
+        $displayItems = [];
+
+        // 1. Non-desa customers
+        foreach ($nonDesaCustomers as $cust) {
+            $displayItems[] = [
+                'type' => 'customer',
+                'total_rp' => $cust['total_rp'],
+                'data' => $cust,
+            ];
+        }
+
+        // 2. Desa groups
+        foreach ($desaGroups as $periode => $desaList) {
+            $totalGroupRp = (float) array_sum(array_column($desaList, 'total_rp'));
+            $desaCount = count($desaList);
+
+            // Group kendala from representative comments
+            $allTasks = collect($desaList)->flatMap(fn ($c) => $c['tasks']);
+            $kendalas = $allTasks->map(fn ($t) => $t->comments ?: $t->late_reason)->filter()->values();
+            $groupKendala = $kendalas->countBy()->sortDesc()->keys()->first() ?: '-';
+
+            // Group PICs
+            $picGroups = [];
+            foreach ($desaList as $c) {
+                $p = $c['pic'];
+                if (! isset($picGroups[$p])) {
+                    $picGroups[$p] = [
+                        'upper' => strtoupper($p),
+                        'title' => ucfirst(strtolower($p)),
+                        'count' => 0,
+                        'subtotal' => 0.0,
+                    ];
+                }
+                $picGroups[$p]['count']++;
+                $picGroups[$p]['subtotal'] += $c['total_rp'];
+            }
+
+            usort($picGroups, fn ($a, $b) => $b['count'] <=> $a['count'] ?: ($b['subtotal'] <=> $a['subtotal'] ?: strcasecmp($a['title'], $b['title'])));
+
+            $picSummary = implode(', ', array_map(fn ($p) => "{$p['upper']} ({$p['count']})", $picGroups));
+
+            $breakdownLines = [];
+            if ($desaCount > 1) {
+                foreach ($picGroups as $p) {
+                    $breakdownLines[] = "{$p['title']}: {$p['count']} desa | {$fmtRp($p['subtotal'])}";
+                }
+            } else {
+                $single = $desaList[0];
+                $picTitle = ucfirst(strtolower($single['pic']));
+                $breakdownLines[] = "{$picTitle}: {$single['name']} | {$fmtRp($single['total_rp'])}";
+            }
+
+            $displayItems[] = [
+                'type' => 'desa_group',
+                'total_rp' => $totalGroupRp,
+                'periode' => $periode,
+                'customer_count' => $desaCount,
+                'pic_summary' => $picSummary,
+                'kendala' => $groupKendala,
+                'breakdown_lines' => $breakdownLines,
+            ];
+        }
+
+        // Urut item on-process dari total_rp terbesar
+        usort($displayItems, fn ($a, $b) => $b['total_rp'] <=> $a['total_rp']);
+        usort($doneTodayCustomers, fn ($a, $b) => $b['total_rp'] <=> $a['total_rp']);
+
+        // Rekapitulasi: per individual pelanggan (Rule 6)
         $totalRpBelum = (float) array_sum(array_column($onProcessCustomers, 'total_rp'));
         $custBelum = count($onProcessCustomers);
         $sidBelum = (int) array_sum(array_column($onProcessCustomers, 'count'));
 
-        $totalRpSelesai = (float) array_sum(array_column($doneCustomers, 'total_rp'));
-        $custSelesai = count($doneCustomers);
-        $sidSelesai = (int) array_sum(array_column($doneCustomers, 'count'));
+        $totalRpSelesai = (float) array_sum(array_column($doneAllCustomers, 'total_rp'));
+        $custSelesai = count($doneAllCustomers);
+        $sidSelesai = (int) array_sum(array_column($doneAllCustomers, 'count'));
+
+        $totalRpToday = (float) array_sum(array_column($doneTodayCustomers, 'total_rp'));
+        $custToday = count($doneTodayCustomers);
+        $sidToday = (int) array_sum(array_column($doneTodayCustomers, 'count'));
 
         $totalRpAll = (float) $tasks->sum(fn ($t) => (float) ($t->rp_exception ?? 0));
         $custAll = $grouped->count();
         $sidAll = $tasks->count();
 
-        $fmtRp = fn (float $val) => 'Rp '.number_format($val, 0, ',', '.');
-
         $lines = [
             '📌 *1. EXCEPTION (STATUS: EXCEPTION OPEN)*',
             '*📊 REKAPITULASI*',
-            "• *BELUM SELESAI* : {$fmtRp($totalRpBelum)} ({$custBelum} Pelanggan | {$sidBelum} SID)",
-            "• *SELESAI* : {$fmtRp($totalRpSelesai)} ({$custSelesai} Pelanggan | {$sidSelesai} SID)",
+            "• *TOTAL KESELURUHAN* : {$fmtRp($totalRpAll)} ({$custAll} Pelanggan | {$sidAll} SID)",
             '----------------------------------------------------------',
-            "*TOTAL KESELURUHAN : {$fmtRp($totalRpAll)} ({$custAll} Pelanggan | {$sidAll} SID)*",
+            "• *SELESAI* : {$fmtRp($totalRpSelesai)} ({$custSelesai} Pelanggan | {$sidSelesai} SID)",
+            "• *BELUM SELESAI* : {$fmtRp($totalRpBelum)} ({$custBelum} Pelanggan | {$sidBelum} SID)",
             '',
             '[❌] *BELUM SELESAI / ON PROCESS:*',
             "*Total: {$fmtRp($totalRpBelum)} ({$custBelum} Pelanggan/PIC | {$sidBelum} SID)*",
         ];
 
-        if (empty($onProcessCustomers)) {
+        if (empty($displayItems)) {
             $lines[] = '- Nihil';
         } else {
             $num = 1;
-            foreach ($onProcessCustomers as $cust) {
-                $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} item)" : '';
-                $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} ❌";
-                $lines[] = "   ↳ Nilai: {$fmtRp($cust['total_rp'])} | Kendala: {$cust['kendala']}";
+            foreach ($displayItems as $item) {
+                if ($item['type'] === 'desa_group') {
+                    $lines[] = "{$num}. *DESA / BENDAHARA DESA - {$item['periode']} ({$item['customer_count']} Pelanggan)* | PIC: {$item['pic_summary']} ❌";
+                    $lines[] = "   ↳ Nilai: {$fmtRp($item['total_rp'])} | Kendala: {$item['kendala']}";
+                    foreach ($item['breakdown_lines'] as $bLine) {
+                        $lines[] = "   • {$bLine}";
+                    }
+                } else {
+                    $cust = $item['data'];
+                    $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} item)" : '';
+                    $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} ❌";
+                    $lines[] = "   ↳ Nilai: {$fmtRp($cust['total_rp'])} | Kendala: {$cust['kendala']}";
+                }
                 $num++;
             }
         }
 
         $lines[] = '';
-        $lines[] = '[✅] *SELESAI / DONE:*';
-        $lines[] = "*Total: {$fmtRp($totalRpSelesai)} ({$custSelesai} Pelanggan/PIC | {$sidSelesai} SID)*";
+        $lines[] = '[✅] *SELESAI / DONE (HARI INI):*';
 
-        if (empty($doneCustomers)) {
-            $lines[] = '- Nihil';
+        if (empty($doneTodayCustomers)) {
+            $lines[] = 'Belum ada penyelesaian hari ini';
         } else {
+            $lines[] = "*Total: {$fmtRp($totalRpToday)} ({$custToday} Pelanggan/PIC | {$sidToday} SID)*";
             $num = 1;
-            foreach ($doneCustomers as $cust) {
+            foreach ($doneTodayCustomers as $cust) {
                 $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} item)" : '';
                 $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} {$cust['marker']}";
                 $lines[] = "   ↳ Nilai: {$fmtRp($cust['total_rp'])} | Progress: {$cust['progress']}";
@@ -297,11 +472,13 @@ class WhatsAppReportService
         $grouped = $tasks->groupBy(fn ($t) => trim((string) $t->customer_name));
 
         $onProcessCustomers = [];
-        $doneCustomers = [];
+        $doneAllCustomers = [];
+        $doneTodayCustomers = [];
 
         foreach ($grouped as $customerName => $custTasks) {
             $unfinishedTasks = $custTasks->filter(fn ($t) => ! $this->isTaskCompleted($t));
-            $finishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $allFinishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $todayFinishedTasks = $allFinishedTasks->filter(fn ($t) => $this->isTaskEligibleForDoneToday($t));
 
             if ($unfinishedTasks->isNotEmpty()) {
                 $kendala = $unfinishedTasks->map(fn ($t) => $t->comments ?: $t->late_reason)->filter()->last() ?: '-';
@@ -315,24 +492,36 @@ class WhatsAppReportService
                 ];
             }
 
-            if ($finishedTasks->isNotEmpty()) {
-                $progress = $finishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
-
-                $doneCustomers[] = [
+            if ($allFinishedTasks->isNotEmpty()) {
+                $doneAllCustomers[] = [
                     'name' => $customerName ?: 'Tanpa Nama Pelanggan',
-                    'count' => $finishedTasks->count(),
-                    'pic' => $this->extractPicName($finishedTasks),
+                    'count' => $allFinishedTasks->count(),
+                ];
+            }
+
+            if ($todayFinishedTasks->isNotEmpty()) {
+                $progress = $todayFinishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
+
+                $doneTodayCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $todayFinishedTasks->count(),
+                    'pic' => $this->extractPicName($todayFinishedTasks),
                     'progress' => $progress,
-                    'marker' => $this->getCustomerStatusMarker($finishedTasks),
+                    'marker' => $this->getCustomerStatusMarker($todayFinishedTasks),
                 ];
             }
         }
 
         usort($onProcessCustomers, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcasecmp($a['name'], $b['name']));
-        usort($doneCustomers, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcasecmp($a['name'], $b['name']));
+        usort($doneTodayCustomers, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcasecmp($a['name'], $b['name']));
 
-        $custSelesai = count($doneCustomers);
-        $sidSelesai = (int) array_sum(array_column($doneCustomers, 'count'));
+        // Rekapitulasi: total keseluruhan selesai (semua yang selesai, bukan cuma hari ini)
+        $custSelesai = count($doneAllCustomers);
+        $sidSelesai = (int) array_sum(array_column($doneAllCustomers, 'count'));
+
+        // Selesai hari ini
+        $custToday = count($doneTodayCustomers);
+        $sidToday = (int) array_sum(array_column($doneTodayCustomers, 'count'));
 
         $custBelum = count($onProcessCustomers);
         $sidBelum = (int) array_sum(array_column($onProcessCustomers, 'count'));
@@ -342,10 +531,11 @@ class WhatsAppReportService
 
         $lines = [
             '📌 *2. SO OPEN*',
-            '📊 REKAPITULASI GLOBAL PEKERJAAN',
-            "SELESAI / DONE : {$custSelesai} Pelanggan | {$sidSelesai} SID",
-            "ON PROGRESS / KENDALA : {$custBelum} Pelanggan | {$sidBelum} SID",
-            "TOTAL KESELURUHAN : {$custTotal} Pelanggan | {$sidTotal} SID",
+            '*📊 REKAPITULASI*',
+            "• *TOTAL KESELURUHAN* : {$custTotal} Pelanggan | {$sidTotal} SID",
+            '----------------------------------------------------------',
+            "• *SELESAI* : {$custSelesai} Pelanggan | {$sidSelesai} SID",
+            "• *BELUM SELESAI* : {$custBelum} Pelanggan | {$sidBelum} SID",
             '',
             '[❌] *BELUM SELESAI / ON PROCESS:*',
             "*Total: {$custBelum} Pelanggan/PIC | {$sidBelum} SID*",
@@ -364,14 +554,14 @@ class WhatsAppReportService
         }
 
         $lines[] = '';
-        $lines[] = '[✅] *SELESAI / DONE:*';
-        $lines[] = "*Total: {$custSelesai} Pelanggan/PIC | {$sidSelesai} SID*";
+        $lines[] = '[✅] *SELESAI / DONE (HARI INI):*';
 
-        if (empty($doneCustomers)) {
-            $lines[] = '- Nihil';
+        if (empty($doneTodayCustomers)) {
+            $lines[] = 'Belum ada penyelesaian hari ini';
         } else {
+            $lines[] = "*Total: {$custToday} Pelanggan/PIC | {$sidToday} SID*";
             $num = 1;
-            foreach ($doneCustomers as $cust) {
+            foreach ($doneTodayCustomers as $cust) {
                 $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} item)" : '';
                 $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} {$cust['marker']}";
                 $lines[] = "   ↳ Progress: {$cust['progress']}";
@@ -394,11 +584,13 @@ class WhatsAppReportService
         $grouped = $tasks->groupBy(fn ($t) => trim((string) $t->customer_name));
 
         $onProcessCustomers = [];
-        $doneCustomers = [];
+        $doneAllCustomers = [];
+        $doneTodayCustomers = [];
 
         foreach ($grouped as $customerName => $custTasks) {
             $unfinishedTasks = $custTasks->filter(fn ($t) => ! $this->isTaskCompleted($t));
-            $finishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $allFinishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $todayFinishedTasks = $allFinishedTasks->filter(fn ($t) => $this->isTaskEligibleForDoneToday($t));
 
             if ($unfinishedTasks->isNotEmpty()) {
                 $salesNames = $unfinishedTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
@@ -424,39 +616,53 @@ class WhatsAppReportService
                 ];
             }
 
-            if ($finishedTasks->isNotEmpty()) {
-                $salesNames = $finishedTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
+            if ($allFinishedTasks->isNotEmpty()) {
+                $doneAllCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $allFinishedTasks->count(),
+                ];
+            }
+
+            if ($todayFinishedTasks->isNotEmpty()) {
+                $salesNames = $todayFinishedTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
                 $salesStr = $salesNames->isNotEmpty() ? $salesNames->implode(', ') : '-';
 
-                $maxAging = $finishedTasks->map(function ($t) {
+                $maxAging = $todayFinishedTasks->map(function ($t) {
                     $refDate = $t->start_date ?? $t->created_at;
 
                     return $refDate ? (int) $refDate->diffInDays(now()) : 0;
                 })->max() ?? 0;
 
-                $totalNilai = (float) $finishedTasks->sum(fn ($t) => $this->getTaskValue($t));
-                $progress = $finishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
+                $totalNilai = (float) $todayFinishedTasks->sum(fn ($t) => $this->getTaskValue($t));
+                $progress = $todayFinishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
 
-                $doneCustomers[] = [
+                $doneTodayCustomers[] = [
                     'name' => $customerName ?: 'Tanpa Nama Pelanggan',
-                    'count' => $finishedTasks->count(),
+                    'count' => $todayFinishedTasks->count(),
                     'sales' => $salesStr,
                     'aging' => $maxAging,
                     'nilai' => $totalNilai,
                     'progress' => $progress,
-                    'marker' => $this->getCustomerStatusMarker($finishedTasks),
+                    'marker' => $this->getCustomerStatusMarker($todayFinishedTasks),
                 ];
             }
         }
 
         $unfinishedCount = (int) array_sum(array_column($onProcessCustomers, 'count'));
-        $finishedCount = (int) array_sum(array_column($doneCustomers, 'count'));
+        $finishedCount = (int) array_sum(array_column($doneAllCustomers, 'count'));
+        $totalItem = $finishedCount + $unfinishedCount;
+        $custToday = count($doneTodayCustomers);
+        $sidToday = (int) array_sum(array_column($doneTodayCustomers, 'count'));
 
         $fmtRp = fn (float $val) => 'Rp '.number_format($val, 0, ',', '.');
 
         $lines = [
             '📌 *3. BAA OPEN*',
-            '- Total: '.number_format($unfinishedCount, 0, ',', '.').' Item (Selesai: '.number_format($finishedCount, 0, ',', '.').' Item)',
+            '*📊 REKAPITULASI*',
+            "• *TOTAL KESELURUHAN* : {$totalItem} Item",
+            '----------------------------------------------------------',
+            "• *SELESAI* : {$finishedCount} Item",
+            "• *BELUM SELESAI* : {$unfinishedCount} Item",
             '',
             '[❌] *BELUM SELESAI / ON PROCESS:*',
         ];
@@ -474,13 +680,13 @@ class WhatsAppReportService
         }
 
         $lines[] = '';
-        $lines[] = '[✅] *SELESAI / DONE:*';
+        $lines[] = '[✅] *SELESAI / DONE (HARI INI):*';
 
-        if (empty($doneCustomers)) {
-            $lines[] = '- Nihil';
+        if (empty($doneTodayCustomers)) {
+            $lines[] = 'Belum ada penyelesaian hari ini';
         } else {
             $num = 1;
-            foreach ($doneCustomers as $cust) {
+            foreach ($doneTodayCustomers as $cust) {
                 $lines[] = "{$num}. *{$cust['name']}* | {$cust['count']} ID PA {$cust['marker']}";
                 $lines[] = "   • Sales: {$cust['sales']} | Aging: {$cust['aging']} Hari | Nilai: {$fmtRp($cust['nilai'])}";
                 $lines[] = "   • Progress: {$cust['progress']}";
@@ -503,11 +709,13 @@ class WhatsAppReportService
         $grouped = $tasks->groupBy(fn ($t) => trim((string) $t->customer_name));
 
         $onProcessCustomers = [];
-        $doneCustomers = [];
+        $doneAllCustomers = [];
+        $doneTodayCustomers = [];
 
         foreach ($grouped as $customerName => $custTasks) {
             $unfinishedTasks = $custTasks->filter(fn ($t) => ! $this->isTaskCompleted($t));
-            $finishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $allFinishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $todayFinishedTasks = $allFinishedTasks->filter(fn ($t) => $this->isTaskEligibleForDoneToday($t));
 
             if ($unfinishedTasks->isNotEmpty()) {
                 $nearestDue = $unfinishedTasks->min('due_date');
@@ -529,23 +737,30 @@ class WhatsAppReportService
                 ];
             }
 
-            if ($finishedTasks->isNotEmpty()) {
-                $nearestDue = $finishedTasks->min('due_date');
-                $dates = $finishedTasks->map(fn ($t) => $t->due_date ? $t->due_date->format('d/m/Y') : null)->filter()->unique()->values();
+            if ($allFinishedTasks->isNotEmpty()) {
+                $doneAllCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $allFinishedTasks->count(),
+                ];
+            }
+
+            if ($todayFinishedTasks->isNotEmpty()) {
+                $nearestDue = $todayFinishedTasks->min('due_date');
+                $dates = $todayFinishedTasks->map(fn ($t) => $t->due_date ? $t->due_date->format('d/m/Y') : null)->filter()->unique()->values();
                 $expStr = $dates->isNotEmpty() ? $dates->implode(' & ') : '-';
 
-                $salesNames = $finishedTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
+                $salesNames = $todayFinishedTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
                 $salesStr = $salesNames->isNotEmpty() ? $salesNames->implode(', ') : '-';
-                $progress = $finishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
+                $progress = $todayFinishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
 
-                $doneCustomers[] = [
+                $doneTodayCustomers[] = [
                     'name' => $customerName ?: 'Tanpa Nama Pelanggan',
-                    'count' => $finishedTasks->count(),
+                    'count' => $todayFinishedTasks->count(),
                     'nearest_due' => $nearestDue,
                     'exp_date' => $expStr,
                     'sales' => $salesStr,
                     'progress' => $progress,
-                    'marker' => $this->getCustomerStatusMarker($finishedTasks),
+                    'marker' => $this->getCustomerStatusMarker($todayFinishedTasks),
                 ];
             }
         }
@@ -560,15 +775,21 @@ class WhatsAppReportService
         };
 
         usort($onProcessCustomers, $sortExp);
-        usort($doneCustomers, $sortExp);
+        usort($doneTodayCustomers, $sortExp);
 
         $unfinishedCount = (int) array_sum(array_column($onProcessCustomers, 'count'));
-        $finishedCount = (int) array_sum(array_column($doneCustomers, 'count'));
+        $finishedCount = (int) array_sum(array_column($doneAllCustomers, 'count'));
         $totalTasks = $tasks->count();
+        $custToday = count($doneTodayCustomers);
+        $sidToday = (int) array_sum(array_column($doneTodayCustomers, 'count'));
 
         $lines = [
             '📌 *4. CONTRACT EXPIRED*',
-            "• Total: {$totalTasks} Pekerjaan ({$unfinishedCount} On Process | {$finishedCount} Selesai)",
+            '*📊 REKAPITULASI*',
+            "• *TOTAL KESELURUHAN* : {$totalTasks} Pekerjaan",
+            '----------------------------------------------------------',
+            "• *SELESAI* : {$finishedCount} Pekerjaan",
+            "• *BELUM SELESAI* : {$unfinishedCount} Pekerjaan",
             '',
             '[❌] *BELUM SELESAI / ON PROCESS:*',
         ];
@@ -586,13 +807,13 @@ class WhatsAppReportService
         }
 
         $lines[] = '';
-        $lines[] = '[✅] *SELESAI / DONE:*';
+        $lines[] = '[✅] *SELESAI / DONE (HARI INI):*';
 
-        if (empty($doneCustomers)) {
-            $lines[] = '- Nihil';
+        if (empty($doneTodayCustomers)) {
+            $lines[] = 'Belum ada penyelesaian hari ini';
         } else {
             $num = 1;
-            foreach ($doneCustomers as $cust) {
+            foreach ($doneTodayCustomers as $cust) {
                 $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} SID)" : '';
                 $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | Exp: {$cust['exp_date']} {$cust['marker']}";
                 $lines[] = "   • Sales: {$cust['sales']} | Progress: {$cust['progress']}";

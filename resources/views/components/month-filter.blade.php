@@ -277,10 +277,44 @@
         }
     }
 
+    function updateTriggerUI(m, y) {
+        const monthsList = {
+            1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April',
+            5: 'Mei', 6: 'Juni', 7: 'Juli', 8: 'Agustus',
+            9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember'
+        };
+        const labelElem = document.getElementById(rootId + '_label');
+        if (labelElem) {
+            if (m && monthsList[m]) {
+                labelElem.textContent = monthsList[m] + (y ? ' ' + y : '');
+            } else if (y) {
+                labelElem.textContent = 'Tahun ' + y;
+            } else {
+                labelElem.textContent = 'Semua Bulan';
+            }
+        }
+        const isFiltered = (m !== null && m !== '') || (y !== null && y !== '');
+        if (trigger) {
+            if (isFiltered) {
+                trigger.classList.add('border-blue-500', 'text-blue-600', 'dark:text-blue-400', 'font-bold', 'shadow-xs');
+                trigger.classList.remove('border-[var(--border)]', 'text-[var(--text)]');
+            } else {
+                trigger.classList.remove('border-blue-500', 'text-blue-600', 'dark:text-blue-400', 'font-bold', 'shadow-xs');
+                trigger.classList.add('border-[var(--border)]', 'text-[var(--text)]');
+            }
+        }
+    }
+
     function submitForm() {
         const form = container.closest('form');
         if (form) {
-            form.submit();
+            inputMonth.dispatchEvent(new Event('change', { bubbles: true }));
+            inputYear.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                form.submit();
+            }
         }
     }
 
@@ -289,6 +323,7 @@
         inputMonth.value = month;
         inputYear.disabled = false;
         inputYear.value = year;
+        updateTriggerUI(month, year);
         closePopup();
         submitForm();
     }
@@ -326,6 +361,7 @@
         inputMonth.disabled = true;
         inputYear.disabled = false;
         inputYear.value = displayedYear;
+        updateTriggerUI(null, displayedYear);
         closePopup();
         submitForm();
     });
@@ -337,6 +373,7 @@
         inputMonth.disabled = true;
         inputYear.value = '';
         inputYear.disabled = true;
+        updateTriggerUI(null, null);
         closePopup();
         submitForm();
     });

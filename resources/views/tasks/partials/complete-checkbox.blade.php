@@ -1,16 +1,17 @@
-@if(!auth()->user()->isAdmin())
-    @php
-        $isAssignedToMe = ($task->user_id === auth()->id());
-        $mode = $mode ?? 'table';
-        $isOverdue = $task->is_overdue;
-        $hasComment = !empty(trim((string)$task->comments));
-    @endphp
+@php
+    $isAdmin = auth()->user()->isAdmin();
+    $isAssignedToMe = ($task->user_id === auth()->id());
+    $canComplete = $isAdmin || $isAssignedToMe;
+    $mode = $mode ?? 'table';
+    $isOverdue = $task->is_overdue;
+    $hasComment = !empty(trim((string)$task->comments));
+@endphp
 
-    @if(!$isAssignedToMe)
-        @if($mode === 'table')
-            <span class="text-[var(--text-muted)] text-xs" title="Tugas milik karyawan lain">-</span>
-        @endif
-    @else
+@if(!$canComplete)
+    @if($mode === 'table')
+        <span class="text-[var(--text-muted)] text-xs" title="Tugas milik karyawan lain">-</span>
+    @endif
+@else
         @if($mode === 'table')
             {{-- Table Inline Mode --}}
             <div id="complete-box-{{ $task->id }}" 
@@ -243,6 +244,14 @@
                         cell.classList.remove('ring-2', 'ring-amber-400', 'bg-amber-500/10', 'rounded-xl');
                     }
 
+                    // Update meta info
+                    const metaSpan = document.getElementById('comment-meta-' + taskId);
+                    if (metaSpan && data.updated_info) {
+                        metaSpan.textContent = data.updated_info;
+                        metaSpan.title = data.updated_info;
+                        metaSpan.classList.remove('hidden');
+                    }
+
                     if (input) input.defaultValue = data.comments;
 
                     window.cancelCommentEdit(taskId);
@@ -353,4 +362,3 @@
             };
         }
     </script>
-@endif
