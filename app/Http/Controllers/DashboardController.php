@@ -110,10 +110,11 @@ class DashboardController extends Controller
             'labels' => array_values($categories),
             'data' => [
                 Task::byCategory(Task::CATEGORY_SSO_OPEN)->count(),
-                Task::byCategory(Task::CATEGORY_BAA)->count(),
                 Task::byCategory(Task::CATEGORY_BAI)->count(),
+                Task::byCategory(Task::CATEGORY_BAA)->count(),
                 Task::byCategory(Task::CATEGORY_EXCEPTION)->count(),
                 Task::byCategory(Task::CATEGORY_KONTRAK_EXP)->count(),
+                Task::byCategory(Task::CATEGORY_CONTRACT_VERIFICATION)->count(),
             ],
         ];
 
@@ -147,6 +148,10 @@ class DashboardController extends Controller
             Task::CATEGORY_KONTRAK_EXP => [
                 'label' => 'Kontrak Exp',
                 'dot_color' => 'bg-purple-400',
+            ],
+            Task::CATEGORY_CONTRACT_VERIFICATION => [
+                'label' => 'Verifikasi Kontrak',
+                'dot_color' => 'bg-indigo-400',
             ],
         ];
 

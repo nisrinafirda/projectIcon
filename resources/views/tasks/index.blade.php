@@ -47,8 +47,8 @@
         @if(isset($categoryMetrics) && $categoryMetrics)
         <!-- METRICS & KP BREAKDOWN SECTION (TERSEDIA UNTUK SEMUA MENU & ROLE) -->
         <div class="space-y-4">
-            @if($category === 'kontrak_exp')
-            <!-- Row 1: 3 Metrik Utama Proyek (Khusus Kontrak Expired) -->
+            @if(in_array($category, ['kontrak_exp', 'contract_verification']))
+            <!-- Row 1: 3 Metrik Utama Proyek (Khusus Kontrak Expired & Verifikasi Kontrak) -->
             <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-3.5">
                 <!-- 1. Total Proyek / Data -->
                 <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
@@ -192,14 +192,20 @@
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-2">
                                 <span class="w-3 h-3 rounded-full {{ $colors['dot'] }}"></span>
-                                <h4 class="font-extrabold text-sm text-slate-800">KP {{ $kpName }}</h4>
+                                <h4 class="font-extrabold text-sm text-slate-800">
+                                    @if($category === 'contract_verification')
+                                        KP {{ strtoupper($kpName) }} ({{ $kpData['total'] }} data)
+                                    @else
+                                        KP {{ $kpName }}
+                                    @endif
+                                </h4>
                             </div>
                             <span class="px-2.5 py-0.5 rounded-full text-xs font-bold {{ $colors['badge'] }}">
                                 {{ $kpData['total'] }} {{ $categoryMetrics['unit'] }}
                             </span>
                         </div>
                         <div class="space-y-1 text-xs text-slate-600">
-                            @if($category !== 'kontrak_exp')
+                            @if(!in_array($category, ['kontrak_exp', 'contract_verification']))
                             <div class="flex justify-between">
                                 <span class="text-slate-500">{{ $category === 'exception' ? 'Total Rp Exception:' : 'Nilai Proyek Baru:' }}</span>
                                 <span class="font-bold text-slate-800">{{ $kpData['nilai'] }}</span>
@@ -243,7 +249,7 @@
                 @endif
                 <div class="sm:col-span-2 relative">
                     <input type="text" name="search" value="{{ request('search') }}"
-                        placeholder="{{ $category === 'kontrak_exp' ? 'Cari no kontrak, pelanggan, ID PA...' : 'Cari ID PA, layanan, pelanggan...' }}"
+                        placeholder="{{ in_array($category, ['kontrak_exp', 'contract_verification']) ? 'Cari no kontrak, pelanggan, catatan...' : 'Cari ID PA, layanan, pelanggan...' }}"
                         autocomplete="off"
                         class="w-full pl-9 pr-9 py-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-[var(--surface)] transition-all">
                     <svg class="search-icon w-4 h-4 text-[var(--text-muted)] absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -358,19 +364,29 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[var(--border)]">
+                    @php
+                        $currentRenderedKp = '__NONE__';
+                    @endphp
                     @forelse($customerGroups as $group)
                     @php
                         $customerKey = $group->customer_key;
-                        $displayName = $group->display_name ?: 'Tanpa Nama Pelanggan';
+                        $rawGroupName = trim((string) ($group->display_name ?? ''));
+                        if ($rawGroupName === '-') {
+                            $rawGroupName = '';
+                        }
+                        $displayName = $rawGroupName !== '' ? $rawGroupName : ($category === 'contract_verification' ? '' : 'Tanpa Nama Pelanggan');
                         $nearestDeadline = $group->nearest_deadline ? \Carbon\Carbon::parse($group->nearest_deadline) : null;
                         $isOverdue = $nearestDeadline && $nearestDeadline->isPast() && !$nearestDeadline->isToday();
                         $isDueSoon = $nearestDeadline && !$isOverdue && \Carbon\Carbon::today()->diffInDays($nearestDeadline, false) <= 1;
 
                         $kpLabels = ($customerKpMap->get($customerKey, collect()))->map(fn ($k) => $kpList[$k] ?? $k)->values();
+                        if ($category === 'contract_verification' && !empty($group->kp)) {
+                            $kpLabels = collect([$kpList[$group->kp] ?? ucfirst($group->kp)]);
+                        }
                         $salesNames = $customerSalesMap->get($customerKey, collect())->filter()->unique()->values();
 
                         $detailParams = [
-                            'customer' => \Illuminate\Support\Str::slug($displayName) ?: 'tanpa-nama-pelanggan',
+                            'customer' => \Illuminate\Support\Str::slug($rawGroupName) ?: 'tanpa-nama-pelanggan',
                             'back_to' => request()->fullUrl(),
                         ];
                         if (request()->filled('month')) {
@@ -397,7 +413,31 @@
                             $firstContract = $contractNumbers->first();
                             $remainingContractsCount = max(0, $contractNumbers->count() - 1);
                         }
+
+                        $groupKpKey = (string) ($group->kp ?? '');
+                        $shouldRenderKpHeader = ($category === 'contract_verification' && auth()->user()->isAdmin() && $groupKpKey !== $currentRenderedKp);
+                        if ($shouldRenderKpHeader) {
+                            $currentRenderedKp = $groupKpKey;
+                            $kpHeaderLabel = $kpList[$groupKpKey] ?? ($groupKpKey !== '' ? strtoupper($groupKpKey) : 'TANPA KP');
+                            $kpHeaderTotalData = isset($kpFilteredCounts) ? ($kpFilteredCounts[$groupKpKey] ?? $group->task_count) : $group->task_count;
+                        }
                     @endphp
+
+                    @if($shouldRenderKpHeader)
+                    <tr class="bg-slate-100/90 dark:bg-slate-800/80 border-y border-[var(--border)]">
+                        <td colspan="5" class="py-2.5 px-4 font-extrabold text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                            <div class="flex items-center justify-between">
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                                    <span>KP {{ strtoupper($kpHeaderLabel) }} ({{ $kpHeaderTotalData }} data)</span>
+                                </span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                                    {{ $kpHeaderTotalData }} Kontrak
+                                </span>
+                            </div>
+                        </td>
+                    </tr>
+                    @endif
 
                     <!-- Baris Induk Pelanggan -->
                     <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer select-none border-b border-[var(--border)]"
@@ -449,7 +489,11 @@
                         @endif
                         <td class="py-4 px-4 text-[var(--text)] font-medium">
                             @if($salesNames->isEmpty())
-                                <span class="text-[var(--text-muted)] italic">-</span>
+                                @if($category === 'contract_verification')
+                                    <span class="text-amber-600 dark:text-amber-400 italic text-xs font-semibold">Belum ada PIC</span>
+                                @else
+                                    <span class="text-[var(--text-muted)] italic">-</span>
+                                @endif
                             @else
                                 <span title="{{ $salesNames->implode(', ') }}">
                                     {{ $salesNames->take(2)->implode(', ') }}@if($salesNames->count() > 2) <span class="text-[var(--text-muted)] font-normal">+{{ $salesNames->count() - 2 }} lainnya</span>@endif

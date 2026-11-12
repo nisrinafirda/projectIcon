@@ -29,6 +29,7 @@ class TaskFactory extends Factory
             'document_number' => strtoupper(substr($category, 0, 3)).'-'.fake()->unique()->numerify('2026-####'),
             'title' => fake()->sentence(4),
             'description' => fake()->paragraph(),
+            'verification_note' => $category === Task::CATEGORY_CONTRACT_VERIFICATION ? 'Dokumen Perjanjian belum di unggah' : null,
             'customer_name' => fake()->company(),
             'service_type' => fake()->randomElement(['Metronet 1Gbps', 'IP VPN', 'Dark Fiber', 'Cloud VPS', 'OLT Upgrade']),
             'priority' => fake()->randomElement(['low', 'medium', 'high', 'urgent']),

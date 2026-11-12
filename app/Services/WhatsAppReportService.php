@@ -21,6 +21,7 @@ class WhatsAppReportService
             $this->generateSoOpenSection(),
             $this->generateBaaSection(),
             $this->generateContractExpiredSection(),
+            $this->generateContractVerificationSection(),
             $this->generateAccrualPublikSection(),
             $this->generateAccrualPlnSection(),
         ];
@@ -237,7 +238,11 @@ class WhatsAppReportService
     public function extractPicName(Collection $tasks): string
     {
         $names = $tasks->map(function ($t) {
-            $name = optional($t->user)->name ?: $t->sales_name;
+            $salesName = trim((string) ($t->sales_name ?? ''));
+            if (strtolower($salesName) === 'not' || $salesName === '-') {
+                $salesName = '';
+            }
+            $name = optional($t->user)->name ?: $salesName;
             if (! $name) {
                 return null;
             }
@@ -246,7 +251,16 @@ class WhatsAppReportService
             return strtoupper($parts[0] ?? '');
         })->filter()->unique()->values();
 
-        return $names->isNotEmpty() ? $names->implode('/') : '-';
+        if ($names->isNotEmpty()) {
+            return $names->implode('/');
+        }
+
+        $firstTask = $tasks->first();
+        if ($firstTask && $firstTask->category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            return 'BELUM ADA PIC';
+        }
+
+        return '-';
     }
 
     /**
@@ -817,6 +831,120 @@ class WhatsAppReportService
                 $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} SID)" : '';
                 $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | Exp: {$cust['exp_date']} {$cust['marker']}";
                 $lines[] = "   • Sales: {$cust['sales']} | Progress: {$cust['progress']}";
+                $num++;
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Generate Section 5: VERIFIKASI KONTRAK.
+     */
+    public function generateContractVerificationSection(): string
+    {
+        $tasks = Task::where('category', Task::CATEGORY_CONTRACT_VERIFICATION)
+            ->with(['user'])
+            ->get();
+
+        $grouped = $tasks->groupBy(fn ($t) => trim((string) $t->customer_name));
+
+        $onProcessCustomers = [];
+        $doneAllCustomers = [];
+        $doneTodayCustomers = [];
+
+        foreach ($grouped as $customerName => $custTasks) {
+            $unfinishedTasks = $custTasks->filter(fn ($t) => ! $this->isTaskCompleted($t));
+            $allFinishedTasks = $custTasks->filter(fn ($t) => $this->isTaskCompleted($t));
+            $todayFinishedTasks = $allFinishedTasks->filter(fn ($t) => $this->isTaskEligibleForDoneToday($t));
+
+            if ($unfinishedTasks->isNotEmpty()) {
+                $catatan = $unfinishedTasks->map(fn ($t) => $t->verification_note ?: $t->description)->filter()->unique()->implode('; ') ?: '-';
+                $kendala = $unfinishedTasks->map(fn ($t) => $t->comments ?: $t->late_reason)->filter()->last() ?: '-';
+
+                $onProcessCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $unfinishedTasks->count(),
+                    'pic' => $this->extractPicName($unfinishedTasks),
+                    'catatan' => $catatan,
+                    'kendala' => $kendala,
+                    'marker' => '❌',
+                ];
+            }
+
+            if ($allFinishedTasks->isNotEmpty()) {
+                $doneAllCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $allFinishedTasks->count(),
+                ];
+            }
+
+            if ($todayFinishedTasks->isNotEmpty()) {
+                $catatan = $todayFinishedTasks->map(fn ($t) => $t->verification_note ?: $t->description)->filter()->unique()->implode('; ') ?: '-';
+                $progress = $todayFinishedTasks->map(fn ($t) => $t->comments ?: $t->submission_notes ?: $t->late_reason)->filter()->last() ?: '-';
+
+                $doneTodayCustomers[] = [
+                    'name' => $customerName ?: 'Tanpa Nama Pelanggan',
+                    'count' => $todayFinishedTasks->count(),
+                    'pic' => $this->extractPicName($todayFinishedTasks),
+                    'catatan' => $catatan,
+                    'progress' => $progress,
+                    'marker' => $this->getCustomerStatusMarker($todayFinishedTasks),
+                ];
+            }
+        }
+
+        usort($onProcessCustomers, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcasecmp($a['name'], $b['name']));
+        usort($doneTodayCustomers, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcasecmp($a['name'], $b['name']));
+
+        $custSelesai = count($doneAllCustomers);
+        $finishedCount = (int) array_sum(array_column($doneAllCustomers, 'count'));
+
+        $custToday = count($doneTodayCustomers);
+        $doneTodayCount = (int) array_sum(array_column($doneTodayCustomers, 'count'));
+
+        $custBelum = count($onProcessCustomers);
+        $unfinishedCount = (int) array_sum(array_column($onProcessCustomers, 'count'));
+
+        $custTotal = $grouped->count();
+        $totalTasks = $tasks->count();
+
+        $lines = [
+            '📌 *5. VERIFIKASI KONTRAK*',
+            '*📊 REKAPITULASI*',
+            "• *TOTAL KESELURUHAN* : {$custTotal} Pelanggan | {$totalTasks} Kontrak",
+            '----------------------------------------------------------',
+            "• *SELESAI* : {$custSelesai} Pelanggan | {$finishedCount} Kontrak",
+            "• *BELUM SELESAI* : {$custBelum} Pelanggan | {$unfinishedCount} Kontrak",
+            '',
+            '[❌] *BELUM SELESAI / ON PROCESS:*',
+            "*Total: {$custBelum} Pelanggan/PIC | {$unfinishedCount} Kontrak*",
+        ];
+
+        if (empty($onProcessCustomers)) {
+            $lines[] = '- Nihil';
+        } else {
+            $num = 1;
+            foreach ($onProcessCustomers as $cust) {
+                $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} Kontrak)" : '';
+                $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} ❌";
+                $lines[] = "   ↳ Catatan: {$cust['catatan']} | Kendala: {$cust['kendala']}";
+                $num++;
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = '[✅] *SELESAI / DONE (HARI INI):*';
+
+        if (empty($doneTodayCustomers)) {
+            $lines[] = 'Belum ada penyelesaian hari ini';
+        } else {
+            $lines[] = "*Total: {$custToday} Pelanggan/PIC | {$doneTodayCount} Kontrak*";
+            $num = 1;
+            foreach ($doneTodayCustomers as $cust) {
+                $itemLabel = $cust['count'] > 1 ? " ({$cust['count']} Kontrak)" : '';
+                $lines[] = "{$num}. *{$cust['name']}{$itemLabel}* | PIC: {$cust['pic']} {$cust['marker']}";
+                $lines[] = "   ↳ Catatan: {$cust['catatan']} | Progress: {$cust['progress']}";
                 $num++;
             }
         }

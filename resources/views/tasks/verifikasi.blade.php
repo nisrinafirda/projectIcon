@@ -160,6 +160,11 @@
                                 @endif
                             </td>
                             <td class="py-3.5 px-4 max-w-xs">
+                                @if($task->verification_note)
+                                <p class="text-amber-600 dark:text-amber-400 font-semibold text-[11px] truncate mb-1" title="{{ $task->verification_note }}">
+                                    📋 Catatan Verifikasi: "{{ $task->verification_note }}"
+                                </p>
+                                @endif
                                 @if($task->late_reason)
                                 <p class="text-rose-500 font-semibold text-[11px] truncate mb-1" title="{{ $task->late_reason }}">
                                     🚨 Alasan Terlambat: "{{ $task->late_reason }}"

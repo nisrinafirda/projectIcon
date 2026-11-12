@@ -120,7 +120,7 @@
                         <svg class="w-10 h-10 text-blue-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                         <input type="file" id="file" name="file" required accept=".xlsx,.xls,.csv,.txt"
                             class="text-xs text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer">
-                        <p class="text-[11px] text-[var(--text-muted)] mt-2">Mendukung format Microsoft Excel (.xlsx, .xls) dan CSV (.csv, .txt) hingga 20 MB</p>
+                        <p class="text-[11px] text-[var(--text-muted)] mt-2">Mendukung format Microsoft Excel (.xlsx, .xls) dan CSV (.csv, .txt) tanpa batasan ukuran file</p>
                     </div>
                     @error('file')
                         <p class="mt-1.5 text-xs text-rose-500 font-semibold">{{ $message }}</p>

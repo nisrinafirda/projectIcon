@@ -37,7 +37,7 @@
                     <div>
                         <div class="flex items-center gap-2 flex-wrap">
                             <h1 class="text-lg md:text-xl font-black text-[var(--text)] tracking-tight">
-                                {{ $customerName ?: 'Tanpa Nama Pelanggan' }}
+                                {{ $customerName ?: ($pageCategory === 'contract_verification' ? '' : 'Tanpa Nama Pelanggan') }}
                             </h1>
                             @if(($pageCategory === 'sso_open' || !$pageCategory) && $tasks->getCollection()->contains(fn ($t) => $t->is_ppb))
                                 <span class="px-2 py-0.5 rounded text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800">
@@ -185,7 +185,7 @@
                 <div class="flex items-center gap-2">
                     <span class="text-sm">📄</span>
                     <h3 class="text-xs font-black uppercase tracking-wider text-[var(--text)]">
-                        DAFTAR LAYANAN / SID — {{ strtoupper($customerName ?: 'TANPA NAMA PELANGGAN') }} ({{ $tasks->total() }} DOKUMEN)
+                        {{ $pageCategory === 'contract_verification' ? 'DAFTAR KONTRAK' : 'DAFTAR LAYANAN / SID' }} — {{ strtoupper($customerName ?: 'TANPA NAMA PELANGGAN') }} ({{ $tasks->total() }} {{ $pageCategory === 'contract_verification' ? 'KONTRAK' : 'DOKUMEN' }})
                     </h3>
                 </div>
                 <div class="text-[11px] text-[var(--text-muted)]">
@@ -197,6 +197,17 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-[var(--text)]">
                     <thead class="bg-[var(--surface-2)] text-[var(--text-muted)] font-semibold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
+                        @if($pageCategory === 'contract_verification')
+                        <tr>
+                            <th class="py-3 px-3.5">NOMOR KONTRAK</th>
+                            <th class="py-3 px-3.5">CATATAN VERIFIKASI</th>
+                            <th class="py-3 px-3.5">DEADLINE</th>
+                            <th class="py-3 px-3.5">STATUS</th>
+                            <th class="py-3 px-3.5 text-center">SELESAI</th>
+                            <th class="py-3 px-3.5 min-w-[200px] w-64">KOMENTAR</th>
+                            <th class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">AKSI</th>
+                        </tr>
+                        @else
                         <tr>
                             <th class="py-3 px-3.5">KATEGORI & KP</th>
                             <th class="py-3 px-3.5">{{ $pageCategory === 'kontrak_exp' ? 'NO KONTRAK / ID PA' : 'ID PA / SID' }}</th>
@@ -211,9 +222,99 @@
                             <th class="py-3 px-3.5 text-center">SELESAI</th>
                             <th class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">AKSI</th>
                         </tr>
+                        @endif
                     </thead>
                     <tbody class="divide-y divide-[var(--border)] bg-[var(--surface)]">
                         @forelse($tasks as $task)
+                        @if($pageCategory === 'contract_verification')
+                        <tr class="hover:bg-blue-50/30 transition-colors">
+                            <td class="py-3 px-3.5 font-mono text-xs">
+                                <div class="font-bold text-[var(--text)] tracking-tight">{{ $task->document_number ?: ($task->nomor_kontrak ?: '-') }}</div>
+                                <div class="flex items-center gap-1.5 flex-wrap mt-1 font-sans">
+                                    @if($task->kp)
+                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-[var(--surface-2)] text-[var(--text-muted)] border border-[var(--border)]">
+                                        KP {{ $task->kp_label }}
+                                    </span>
+                                    @endif
+                                    @php
+                                        $rawSalesDisplay = trim((string) ($task->sales_name ?? ''));
+                                        if (strtolower($rawSalesDisplay) === 'not' || $rawSalesDisplay === '-') {
+                                            $rawSalesDisplay = '';
+                                        }
+                                        $salesDisplay = $rawSalesDisplay !== '' ? $rawSalesDisplay : (optional($task->user)->name ?: 'Belum ada PIC');
+                                    @endphp
+                                    <span class="text-[11px] {{ $salesDisplay === 'Belum ada PIC' ? 'text-amber-600 dark:text-amber-400 italic font-semibold' : 'text-[var(--text-muted)] font-medium' }}">
+                                        Sales: {{ $salesDisplay }}
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-3.5 max-w-md">
+                                @php
+                                    $verifNote = $task->verification_note ?: ($task->description ?: '-');
+                                @endphp
+                                <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[var(--text)] font-medium text-xs leading-relaxed whitespace-pre-line">
+                                    {{ $verifNote }}
+                                </div>
+                            </td>
+                            <td class="py-3 px-3.5">
+                                @if($task->due_date)
+                                    <div class="flex flex-col">
+                                        <span class="font-bold text-xs {{ $task->is_overdue ? 'text-rose-500' : 'text-[var(--text)]' }}">
+                                            {{ $task->due_date->format('d/m/Y') }}
+                                        </span>
+                                        @if($task->is_overdue)
+                                            <span class="text-[10px] font-bold text-rose-500">Terlambat</span>
+                                        @endif
+                                    </div>
+                                @else
+                                    <span class="text-[var(--text-muted)] italic text-xs">-</span>
+                                @endif
+                            </td>
+                            <td class="py-3 px-3.5">
+                                @if($task->status === 'approved')
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500">
+                                        Selesai
+                                    </span>
+                                @elseif($task->status === 'submitted')
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-500">
+                                        Menunggu Review
+                                    </span>
+                                @elseif($task->status === 'rejected')
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500">
+                                        Revisi
+                                    </span>
+                                @elseif($task->status === 'pending')
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-[var(--text-muted)]">
+                                        Belum Dikerjakan
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-500">
+                                        Sedang Dikerjakan
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="py-3 px-3.5 text-center">
+                                @include('tasks.partials.complete-checkbox', ['task' => $task, 'mode' => 'table'])
+                            </td>
+                            <td class="py-3 px-3.5 min-w-[200px] max-w-xs">
+                                @include('tasks.partials.comment-cell', ['task' => $task])
+                            </td>
+                            <td class="py-3 px-3.5 {{ auth()->user()->isAdmin() ? 'text-right' : 'text-center' }}">
+                                <div class="flex items-center {{ auth()->user()->isAdmin() ? 'justify-end' : 'justify-center' }} gap-1.5">
+                                    <a href="{{ route('tasks.show', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
+                                       class="px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] text-[var(--text)] hover:bg-blue-600 hover:text-white font-semibold text-xs border border-[var(--border)] transition-colors">
+                                        Detail
+                                    </a>
+                                    @if(auth()->user()->isAdmin())
+                                    <a href="{{ route('tasks.edit', ['task' => $task, 'back_to' => $currentCleanUrl, 'return_to' => $currentCleanUrl]) }}" 
+                                       class="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors" title="Edit Tugas">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                    </a>
+                                    @endif
+                                </div>
+                            </td>
+                        </tr>
+                        @else
                         <tr class="hover:bg-blue-50/30 transition-colors">
                             <td class="py-3 px-3.5">
                                 <div class="flex flex-col gap-1 items-start">
@@ -222,7 +323,8 @@
                                         {{ $task->category === 'baa' ? 'bg-amber-500/15 text-amber-600 border border-amber-500/20' : '' }}
                                         {{ $task->category === 'bai' ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/20' : '' }}
                                         {{ $task->category === 'exception' ? 'bg-rose-500/15 text-rose-600 border border-rose-500/20' : '' }}
-                                        {{ $task->category === 'kontrak_exp' ? 'bg-purple-500/15 text-purple-600 border border-purple-500/20' : '' }}">
+                                        {{ $task->category === 'kontrak_exp' ? 'bg-purple-500/15 text-purple-600 border border-purple-500/20' : '' }}
+                                        {{ $task->category === 'contract_verification' ? 'bg-indigo-500/15 text-indigo-600 border border-indigo-500/20' : '' }}">
                                         {{ $task->category_label }}
                                     </span>
                                     <div class="flex items-center gap-1">
@@ -301,6 +403,10 @@
                                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500">
                                         Revisi
                                     </span>
+                                @elseif($task->status === 'pending')
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-[var(--text-muted)]">
+                                        Belum Dikerjakan
+                                    </span>
                                 @else
                                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-500">
                                         Sedang Dikerjakan
@@ -342,9 +448,10 @@
                                 </div>
                             </td>
                         </tr>
+                        @endif
                         @empty
                         <tr>
-                            <td colspan="{{ in_array($pageCategory, ['sso_open', 'baa']) ? 10 : 9 }}" class="py-8 text-center text-[var(--text-muted)] italic">
+                            <td colspan="{{ $pageCategory === 'contract_verification' ? 7 : (in_array($pageCategory, ['sso_open', 'baa']) ? 10 : 9) }}" class="py-8 text-center text-[var(--text-muted)] italic">
                                 @if(request()->filled('month') || request()->filled('year'))
                                     Tidak ada tugas pada bulan ini.
                                 @else

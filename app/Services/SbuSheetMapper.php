@@ -88,26 +88,29 @@ class SbuSheetMapper
     private const HEADER_PATTERNS = [
         'id_pelanggan' => ['id pelanggan', 'idpelanggan', 'id customer', 'idcustomer', 'id cust', 'idcust', 'no pelanggan', 'nopelanggan', 'customer id', 'cust id'],
         'document_number' => ['sid / thbl', 'sidthbl', 'id pa', 'idpa', 'sid'],
-        'tanggal_komitmen' => ['tanggal komitmen close', 'komitmen close'],
-        'row_number' => ['no'],
-        'customer_name' => ['nama pelanggan', 'namapelanggan'],
+        'tanggal_komitmen' => ['tanggal komitmen close', 'komitmen close', 'deadline', 'batas waktu', 'jatuh tempo'],
+        'row_number' => ['no', 'nomor', 'num', 'number', 'row'],
+        'customer_name' => ['nama pelanggan', 'namapelanggan', 'nama perusahaan', 'namaperusahaan', 'perusahaan'],
         'service_type' => ['layanan produk', 'layananproduk', 'layanan'],
         'harga_lama' => ['harga lama', 'hargalama'],
         'harga_baru' => ['harga baru', 'hargabaru', 'harga bar'],
         'selisih' => ['selisih'],
         'kategori_segmen' => ['kategori customer', 'kategori'],
-        'kp' => ['kp'],
+        'kp' => ['kantor perwakilan revenue', 'kantor perwakilan', 'kantorperwakilan', 'kp'],
         'sub_bidang' => ['sub bidang', 'subbidang', 'subbidangrevenue'],
         'sales' => ['sales'],
         'so_comment' => ['progress pekerjaan', 'progress / kendala', 'progress/kendala', 'progress kendala'],
+        'status_verifikasi' => ['status verifikasi', 'statusverifikasi'],
         'status' => ['status pekerjaan', 'status'],
+        'verification_note' => ['catatan verifikasi', 'catatan kontrak', 'keterangan verifikasi', 'hasil verifikasi', 'alasan verifikasi', 'verification note', 'catatan', 'notes'],
         'kendala' => ['kendala pdl', 'kendala'],
         'confirm_to' => ['confirm to'],
         'konfirmasi' => ['confirm to ppb', 'konfirmasi'],
         'alasan' => ['alasan'],
         'keterangan' => ['keterangan'],
         'support' => ['suport dari ppb', 'support dari ppb', 'support'],
-        'nomor_kontrak' => ['nomor kontrak'],
+        'partner_contract_number' => ['nomor kontrak mitra', 'no kontrak mitra', 'kontrak mitra', 'nomor perjanjian mitra', 'no perjanjian mitra', 'perjanjian mitra', 'mitra'],
+        'nomor_kontrak' => ['nomor kontrak', 'no kontrak', 'nomor perjanjian', 'no perjanjian', 'kontrak'],
         'target_days' => ['target bai', 'target'],
         'aging_days' => ['aging'],
         'tanggal_aging' => ['tanggal aging'],
@@ -129,10 +132,15 @@ class SbuSheetMapper
     private const SBU_INDICATORS = [
         'id pa', 'idpa', 'id pelanggan', 'sid',
         'nama pelanggan', 'namapelanggan',
+        'nama perusahaan', 'namaperusahaan',
+        'kantor perwakilan revenue', 'kantor perwakilan',
         'harga lama', 'hargalama',
         'tanggal aging', 'target bai',
         'tanggal upload', 'tanggalupload',
         'tgl target aktivasi',
+        'nomor kontrak', 'no kontrak',
+        'catatan verifikasi', 'verification note',
+        'status verifikasi', 'statusverifikasi',
     ];
 
     /**
@@ -201,10 +209,27 @@ class SbuSheetMapper
             return ['category' => Task::CATEGORY_SSO_OPEN, 'markers' => $ssoMatches];
         }
 
-        // 3. Contract Expired indicators
-        $kontrakMatches = $findMatchingHeaders('nomor kontrak baru', 'nomor kontrak lama', 'kontrak berakhir', 'kontrak lama', 'thbl tagihan', 'tipe revenue', 'nomor kontrak');
+        // 3a. Contract Verification explicit indicators
+        $verifKontrakMatches = $findMatchingHeaders('catatan verifikasi', 'verifikasi kontrak', 'keterangan verifikasi', 'alasan verifikasi', 'hasil verifikasi', 'verification note', 'status verifikasi', 'statusverifikasi', 'kantor perwakilan revenue');
+        if (! empty($verifKontrakMatches)) {
+            return ['category' => Task::CATEGORY_CONTRACT_VERIFICATION, 'markers' => $verifKontrakMatches];
+        }
+
+        // 3b. Contract Expired explicit indicators
+        $kontrakMatches = $findMatchingHeaders('nomor kontrak baru', 'nomor kontrak lama', 'kontrak berakhir', 'kontrak lama', 'thbl tagihan', 'tipe revenue');
         if (! empty($kontrakMatches)) {
             return ['category' => Task::CATEGORY_KONTRAK_EXP, 'markers' => $kontrakMatches];
+        }
+
+        // 3c. Generic Nomor Kontrak: check if accompanied by Catatan/Notes -> Contract Verification, otherwise Contract Expired
+        $genericKontrakMatches = $findMatchingHeaders('nomor kontrak', 'no kontrak');
+        if (! empty($genericKontrakMatches)) {
+            $catatanMatches = $findMatchingHeaders('catatan', 'notes', 'status verifikasi', 'nama perusahaan');
+            if (! empty($catatanMatches)) {
+                return ['category' => Task::CATEGORY_CONTRACT_VERIFICATION, 'markers' => array_values(array_unique(array_merge($genericKontrakMatches, $catatanMatches)))];
+            }
+
+            return ['category' => Task::CATEGORY_KONTRAK_EXP, 'markers' => $genericKontrakMatches];
         }
 
         // 4. BAA vs BAI distinction
@@ -262,6 +287,11 @@ class SbuSheetMapper
 
                 foreach ($patterns as $pattern) {
                     if (str_contains($header, $pattern)) {
+                        // Only exact match for row number, not substring match
+                        if ($field === 'row_number' && ! in_array($header, ['no', 'nomor', 'num', 'number', 'row'], true)) {
+                            continue;
+                        }
+
                         // Avoid "id_pelanggan" matching "id pelanggan produk" or "layanan"
                         if ($field === 'id_pelanggan' && (str_contains($header, 'produk') || str_contains($header, 'layanan'))) {
                             continue;
@@ -277,6 +307,21 @@ class SbuSheetMapper
                             continue;
                         }
 
+                        // Avoid "status" matching "status verifikasi"
+                        if ($field === 'status' && str_contains($header, 'verifikasi')) {
+                            continue;
+                        }
+
+                        // Avoid "partner_contract_number" matching headers without "mitra"
+                        if ($field === 'partner_contract_number' && ! str_contains($header, 'mitra')) {
+                            continue;
+                        }
+
+                        // Avoid "nomor_kontrak" and "document_number" matching "mitra"
+                        if (($field === 'nomor_kontrak' || $field === 'document_number') && str_contains($header, 'mitra')) {
+                            continue;
+                        }
+
                         $map[$field] = $colIndex;
                         $assigned[$colIndex] = $field;
                         break 2;
@@ -285,16 +330,38 @@ class SbuSheetMapper
             }
         }
 
-        // Fallback for document_number if no ID PA / SID column exists (e.g. sheets using 'ID Pelanggan' as doc number)
-        if ($map['document_number'] === null) {
-            if ($map['id_pelanggan'] !== null) {
-                $map['document_number'] = $map['id_pelanggan'];
-            } else {
+        // For Verifikasi Kontrak: ensure nomor_kontrak is never partner/mitra and becomes primary document_number
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            if ($map['nomor_kontrak'] === null) {
                 foreach ($normalized as $colIndex => $header) {
-                    if ($header === '') {
+                    if ($header === '' || str_contains($header, 'mitra')) {
                         continue;
                     }
-                    foreach (['id pelanggan', 'idpelanggan', 'id customer', 'idcustomer'] as $pattern) {
+                    if (str_contains($header, 'kontrak') || str_contains($header, 'perjanjian')) {
+                        $map['nomor_kontrak'] = $colIndex;
+                        break;
+                    }
+                }
+            }
+            if ($map['nomor_kontrak'] !== null) {
+                $map['document_number'] = $map['nomor_kontrak'];
+            }
+        }
+
+        // Fallback for document_number if no ID PA / SID column exists (e.g. sheets using 'ID Pelanggan' or 'Nomor Kontrak' as doc number)
+        if ($map['document_number'] === null) {
+            if ($map['nomor_kontrak'] !== null && $category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                $map['document_number'] = $map['nomor_kontrak'];
+            } elseif ($map['id_pelanggan'] !== null && $category !== Task::CATEGORY_CONTRACT_VERIFICATION) {
+                $map['document_number'] = $map['id_pelanggan'];
+            } elseif ($map['nomor_kontrak'] !== null) {
+                $map['document_number'] = $map['nomor_kontrak'];
+            } else {
+                foreach ($normalized as $colIndex => $header) {
+                    if ($header === '' || str_contains($header, 'mitra')) {
+                        continue;
+                    }
+                    foreach (['id pelanggan', 'idpelanggan', 'id customer', 'idcustomer', 'nomor kontrak', 'no kontrak', 'nomor dokumen'] as $pattern) {
                         if (str_contains($header, $pattern)) {
                             $map['document_number'] = $colIndex;
                             break 2;
@@ -386,6 +453,79 @@ class SbuSheetMapper
     }
 
     /**
+     * Clean customer/company name: trim spaces, tabs, NBSP, and treat "-" as empty (null).
+     */
+    public function cleanCustomerName(?string $raw): ?string
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        $clean = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $raw) ?? $raw;
+        $clean = trim($clean, " \t\n\r\0\x0B");
+        $clean = preg_replace('/[ \t]+/', ' ', $clean) ?? $clean;
+
+        if ($clean === '' || preg_match('/^[\-\x{2013}\x{2014}\s]+$/u', $clean)) {
+            return null;
+        }
+
+        return $clean;
+    }
+
+    /**
+     * Clean sales name: trim spaces/tabs, and treat "Not", "-", or empty as null (no PIC).
+     */
+    public function cleanSalesName(?string $raw): ?string
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        $clean = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $raw) ?? $raw;
+        $clean = trim($clean, " \t\n\r\0\x0B");
+        $clean = preg_replace('/[ \t]+/', ' ', $clean) ?? $clean;
+
+        if ($clean === '' || preg_match('/^[\-\x{2013}\x{2014}\s]+$/u', $clean)) {
+            return null;
+        }
+
+        $lower = strtolower($clean);
+        if (in_array($lower, ['not', 'n/a', '#n/a', 'none', 'null', 'belum ada pic', 'tanpa pic'], true)) {
+            return null;
+        }
+
+        return $clean;
+    }
+
+    /**
+     * Normalize "STATUS VERIFIKASI" column value (e.g. "SEND BACK", "APPROVED").
+     */
+    public function normalizeStatusVerifikasi(?string $raw): ?string
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        $clean = preg_replace('/[\x{00A0}\x{200B}-\x{200D}\x{FEFF}]/u', ' ', $raw) ?? $raw;
+        $clean = trim($clean, " \t\n\r\0\x0B");
+        $clean = strtoupper(preg_replace('/\s+/', ' ', $clean) ?? $clean);
+
+        if ($clean === '' || $clean === '-') {
+            return null;
+        }
+
+        if ($clean === 'SENDBACK' || str_contains($clean, 'SEND BACK')) {
+            return 'SEND BACK';
+        }
+
+        if ($clean === 'APPROVED' || $clean === 'APPROVE') {
+            return 'APPROVED';
+        }
+
+        return $clean;
+    }
+
+    /**
      * Map a single SBU data row to a task-ready associative array.
      *
      * @param  list<mixed>  $row
@@ -394,13 +534,15 @@ class SbuSheetMapper
      */
     public function mapRow(array $row, array $columnMap, string $category): ?array
     {
-        $get = fn (string $field): string => trim((string) ($row[$columnMap[$field] ?? -1] ?? ''));
+        $get = fn (string $field): string => trim((string) ($row[$columnMap[$field] ?? -1] ?? ''), " \t\n\r\0\x0B");
 
         $rawDoc = $row[$columnMap['document_number'] ?? -1] ?? '';
         $docNumber = $this->formatDocumentNumber($rawDoc);
-        $customerName = $get('customer_name');
+        $rawCustomerName = (string) ($row[$columnMap['customer_name'] ?? -1] ?? '');
+        $customerName = $this->cleanCustomerName($rawCustomerName) ?? '';
         $serviceType = $get('service_type');
-        $sales = $get('sales');
+        $rawSales = (string) ($row[$columnMap['sales'] ?? -1] ?? '');
+        $sales = $this->cleanSalesName($rawSales);
 
         $rawIdPelanggan = $row[$columnMap['id_pelanggan'] ?? -1] ?? '';
         $idPelanggan = $this->formatDocumentNumber($rawIdPelanggan);
@@ -408,13 +550,34 @@ class SbuSheetMapper
             $idPelanggan = null;
         }
 
+        $rawPartner = $row[$columnMap['partner_contract_number'] ?? -1] ?? '';
+        $partnerContractNumber = $this->formatDocumentNumber($rawPartner);
+        if ($partnerContractNumber === '' || $partnerContractNumber === '-') {
+            $partnerContractNumber = null;
+        }
+
         // Skip completely empty rows
         if ($docNumber === '' && $customerName === '' && $serviceType === '') {
             return null;
         }
 
+        // For Verifikasi Kontrak: allow APPROVED and SEND BACK (or empty) rows
+        $statusVerifikasi = null;
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION && ($columnMap['status_verifikasi'] ?? null) !== null) {
+            $statusVerifikasi = $this->normalizeStatusVerifikasi($get('status_verifikasi'));
+            // Skip rows with invalid verification status (neither APPROVED nor SEND BACK)
+            if ($statusVerifikasi !== null && $statusVerifikasi !== 'APPROVED' && $statusVerifikasi !== 'SEND BACK') {
+                return null;
+            }
+        }
+
         // If no document_number or ID PA is empty/invalid, skip row
         if ($docNumber === '' || ! preg_match('/[a-zA-Z0-9]/', $docNumber)) {
+            return null;
+        }
+
+        // Skip KP group header rows (e.g. "KP JEMBER (8 data)" or "KP SURABAYA")
+        if (preg_match('/^kp\s+(surabaya|malang|madiun|jember)\b/i', $docNumber) || preg_match('/^kp\s+(surabaya|malang|madiun|jember)\b/i', $customerName)) {
             return null;
         }
 
@@ -459,6 +622,18 @@ class SbuSheetMapper
         // Build description from price data, kendala, alasan, konfirmasi, keterangan, support
         $description = $this->buildDescription($row, $columnMap, $soType);
 
+        // Extract verification_note specifically for contract_verification (separate from sales comments)
+        $verificationNote = null;
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            $rawVerifNote = $get('verification_note');
+            if ($rawVerifNote === '' || $rawVerifNote === '-') {
+                $rawVerifNote = $get('keterangan') ?: ($get('alasan') ?: $get('kendala'));
+            }
+            if ($rawVerifNote !== '' && $rawVerifNote !== '-') {
+                $verificationNote = $rawVerifNote;
+            }
+        }
+
         // Normalize KP
         $kp = $this->normalizeKp($get('kp')) ?? $this->normalizeKp($get('sub_bidang'));
 
@@ -501,10 +676,12 @@ class SbuSheetMapper
 
         return [
             'document_number' => $docNumber,
+            'partner_contract_number' => $partnerContractNumber,
             'id_pelanggan' => $idPelanggan,
             'category' => $category,
             'title' => $title,
             'description' => $description ?: null,
+            'verification_note' => $verificationNote,
             'customer_name' => $customerName ?: null,
             'service_type' => $serviceType ?: null,
             'kp' => $kp,
@@ -714,6 +891,41 @@ class SbuSheetMapper
             return Task::STATUS_IN_PROGRESS;
         }
 
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            $cleaned = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', (string) $rawStatus) ?? (string) $rawStatus;
+            $cleaned = preg_replace('/[\x{00A0}\x{202F}]/u', ' ', $cleaned) ?? $cleaned;
+            $normalized = mb_strtolower(trim($cleaned, " \t\n\r\0\x0B"), 'UTF-8');
+            $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+
+            if ($normalized === '' || $normalized === '-') {
+                return Task::STATUS_PENDING;
+            }
+
+            if (
+                str_contains($normalized, 'done')
+                || str_contains($normalized, 'selesai')
+                || str_contains($normalized, 'close')
+                || str_contains($normalized, 'closed')
+                || str_contains($normalized, 'approved')
+                || (str_contains($normalized, 'sesuai') && ! str_contains($normalized, 'tidak sesuai') && ! str_contains($normalized, 'belum sesuai'))
+            ) {
+                return Task::STATUS_APPROVED;
+            }
+
+            if (
+                str_contains($normalized, 'on process')
+                || str_contains($normalized, 'on progress')
+                || str_contains($normalized, 'on proses')
+                || str_contains($normalized, 'sedang dikerjakan')
+                || str_contains($normalized, 'in progress')
+                || str_contains($normalized, 'in_progress')
+            ) {
+                return Task::STATUS_IN_PROGRESS;
+            }
+
+            return Task::STATUS_PENDING;
+        }
+
         // Kategori lain (BAI): tetap pending seperti sebelum perubahan BAA
         return Task::STATUS_PENDING;
     }
@@ -777,6 +989,12 @@ class SbuSheetMapper
         $nomorKontrak = $get('nomor_kontrak');
         if ($nomorKontrak !== '') {
             $parts[] = 'No. Kontrak: '.$nomorKontrak;
+        }
+
+        // Nomor Kontrak Mitra
+        $partnerKontrak = $get('partner_contract_number');
+        if ($partnerKontrak !== '' && $partnerKontrak !== '-') {
+            $parts[] = 'No. Kontrak Mitra: '.$partnerKontrak;
         }
 
         // Konfirmasi
@@ -1073,12 +1291,20 @@ class SbuSheetMapper
 
             $hasIdPa = false;
             $hasCustomer = false;
+            $hasNomorKontrak = false;
+            $hasCatatanVerif = false;
             foreach ($normalizedCells as $cell) {
                 if (str_contains($cell, 'id pa') || str_contains($cell, 'idpa') || str_contains($cell, 'id pelanggan') || str_contains($cell, 'sid')) {
                     $hasIdPa = true;
                 }
-                if (str_contains($cell, 'nama pelanggan') || str_contains($cell, 'namapelanggan')) {
+                if (str_contains($cell, 'nama pelanggan') || str_contains($cell, 'namapelanggan') || str_contains($cell, 'nama perusahaan') || str_contains($cell, 'namaperusahaan')) {
                     $hasCustomer = true;
+                }
+                if ((str_contains($cell, 'nomor kontrak') || str_contains($cell, 'no kontrak') || str_contains($cell, 'nomor perjanjian') || $cell === 'kontrak') && ! str_contains($cell, 'mitra')) {
+                    $hasNomorKontrak = true;
+                }
+                if (str_contains($cell, 'catatan verifikasi') || str_contains($cell, 'verification note') || str_contains($cell, 'status verifikasi') || $cell === 'catatan' || $cell === 'notes') {
+                    $hasCatatanVerif = true;
                 }
             }
 
@@ -1095,6 +1321,9 @@ class SbuSheetMapper
                 }
             } else {
                 if ($hasIdPa && $hasCustomer) {
+                    return $i;
+                }
+                if ($hasNomorKontrak && ($hasCustomer || $hasCatatanVerif)) {
                     return $i;
                 }
                 if ($hasIdPa) {

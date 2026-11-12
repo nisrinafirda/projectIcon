@@ -141,6 +141,15 @@
                 </div>
 
                 <div>
+                    <label for="verification_note" class="block text-xs font-bold text-[var(--text)] uppercase tracking-wider mb-1.5">
+                        Catatan Verifikasi Kontrak
+                    </label>
+                    <textarea id="verification_note" name="verification_note" rows="2"
+                        placeholder="Contoh: Dokumen Perjanjian belum di unggah / TANGGAL KONTRAK TIDAK SESUAI"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">{{ old('verification_note', $task->verification_note) }}</textarea>
+                </div>
+
+                <div>
                     <label for="description" class="block text-xs font-bold text-[var(--text)] uppercase tracking-wider mb-1.5">
                         Instruksi & Keterangan
                     </label>

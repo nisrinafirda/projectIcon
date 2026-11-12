@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -102,6 +103,12 @@ class TaskImportExportController extends Controller
                 ['sso_open', 'SO-2026-102', 'Penyambungan Drop Optik Pelanggan Baru', $empNames[1 % count($empNames)], 'Dinas Kesehatan Prov Jatim', 'Metronet 1Gbps', 'urgent', date('Y-m-d'), date('Y-m-d', strtotime('+2 days')), 'Splicing core 1-4 dan OTDR test'],
                 ['sso_open', 'SO-2026-103', 'Migrasi Port Pelanggan VIP', $empNames[2 % count($empNames)], 'PT Bank Jatim Kantor Pusat', 'Dedicated Fiber', 'medium', date('Y-m-d'), date('Y-m-d', strtotime('+5 days')), 'Pergantian perangkat SFP di POP Surabaya'],
             ];
+        } elseif ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            $sampleData = [
+                ['contract_verification', 'KTR-VERIF-2026-001', 'Perbaikan Dokumen Kontrak Pelanggan', $empNames[0 % count($empNames)], 'PT Pelanggan Surabaya Satu', 'Metronet 1Gbps', 'high', date('Y-m-d'), date('Y-m-d', strtotime('+3 days')), 'Dokumen Perjanjian belum di unggah'],
+                ['contract_verification', 'KTR-VERIF-2026-002', 'Verifikasi Kesesuaian Tanggal Kontrak', $empNames[1 % count($empNames)], 'Dinas Kominfo Malang', 'IP VPN 500Mbps', 'urgent', date('Y-m-d'), date('Y-m-d', strtotime('+2 days')), 'TANGGAL KONTRAK TIDAK SESUAI'],
+                ['contract_verification', 'KTR-VERIF-2026-003', 'Verifikasi Dokumen NPWP Kontrak', $empNames[2 % count($empNames)], 'RSUD dr Soebandi Jember', 'Dedicated Internet', 'medium', date('Y-m-d'), date('Y-m-d', strtotime('+5 days')), 'NPWP tidak sesuai dengan NPWP upload'],
+            ];
         } elseif ($targetCategory) {
             $catLabel = $validCategories[$targetCategory];
             $sampleData = [
@@ -146,20 +153,22 @@ class TaskImportExportController extends Controller
     /**
      * Process bulk import of tasks with anti-duplicate logic.
      */
-    public function import(Request $request): RedirectResponse
+        public function import(Request $request): RedirectResponse
     {
+        @ini_set('memory_limit', '1024M');
+        @set_time_limit(0);
+
         $categoryLabels = Task::categories();
         $validCategories = array_keys($categoryLabels);
 
         $request->validate([
-            'file' => ['required', 'file', 'extensions:xlsx,xls,csv,txt', 'max:20480'],
+            'file' => ['required', 'file', 'extensions:xlsx,xls,csv,txt'],
             'duplicate_action' => ['required', 'in:skip,update,fail'],
             'default_user_id' => ['nullable', 'exists:users,id'],
             'target_category' => ['nullable', 'string', 'in:'.implode(',', $validCategories)],
             'source_category' => ['nullable', 'string', 'in:'.implode(',', $validCategories)],
         ], [
             'file.extensions' => 'File harus berupa file spreadsheet dengan format: .xlsx, .xls, .csv, atau .txt.',
-            'file.max' => 'Ukuran file tidak boleh melebihi 20 MB.',
         ]);
 
         $file = $request->file('file');
@@ -177,26 +186,65 @@ class TaskImportExportController extends Controller
             ]);
         }
 
-        try {
-            $spreadsheet = IOFactory::load($file->getRealPath());
-        } catch (\Exception $e) {
-            return back()->withInput()->withErrors(['file' => 'Gagal membaca file spreadsheet: '.$e->getMessage()]);
-        }
-
         $sbuMapper = new SbuSheetMapper;
-        $sheetNames = $spreadsheet->getSheetNames();
-        if (empty($sheetNames)) {
-            return back()->withInput()->withErrors(['file' => 'File tidak memiliki sheet yang dapat dibaca.']);
-        }
+        $realPath = $file->getRealPath() ?: $file->getPathname();
+        $fileExtension = strtolower($file->getClientOriginalExtension() ?: ($file->extension() ?: ''));
+        $isCsvFile = in_array($fileExtension, ['csv', 'txt'], true);
 
-        /** @var Worksheet|null $sheet */
-        $sheet = null;
         $headerRowIndex = null;
+        $headerRow = [];
+        $selectedSheetName = 'Worksheet';
+        $totalSheetRows = 0;
+        $inMemoryRows = null;
 
-        if ($targetCategory) {
+        if ($isCsvFile) {
+            try {
+                $previewRows = $this->readCsvPreviewRows($realPath, 35);
+            } catch (\Throwable $e) {
+                return back()->withInput()->withErrors(['file' => 'Gagal membaca file CSV: '.$e->getMessage()]);
+            }
+
+            if (count($previewRows) <= 1) {
+                return back()->withInput()->withErrors(['file' => "Sheet 'Worksheet' kosong atau hanya berisi baris judul header."]);
+            }
+
+            $headerRowIndex = $sbuMapper->findHeaderRowIndex($previewRows, $targetCategory);
+            if ($headerRowIndex === null) {
+                if ($targetCategory === Task::CATEGORY_BAA) {
+                    return back()->withInput()->withErrors([
+                        'file' => "Import ditolak: Kolom 'ID PA' dan 'NAMA PELANGGAN' tidak ditemukan di sheet 'Worksheet'. Pastikan sheet memiliki baris header yang valid.",
+                    ]);
+                }
+
+                return back()->withInput()->withErrors([
+                    'file' => "Import ditolak: Baris header kolom (ID PA atau Nomor Dokumen) tidak ditemukan di sheet 'Worksheet'.",
+                ]);
+            }
+
+            $headerRow = $previewRows[$headerRowIndex];
+        } elseif ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            try {
+                $reader = IOFactory::createReaderForFile($realPath);
+                $reader->setReadDataOnly(true);
+                if (method_exists($reader, 'setReadEmptyCells')) {
+                    $reader->setReadEmptyCells(false);
+                }
+                $worksheetInfo = $reader->listWorksheetInfo($realPath);
+            } catch (\Throwable $e) {
+                return back()->withInput()->withErrors(['file' => 'Gagal membaca file spreadsheet: '.$e->getMessage()]);
+            }
+
+            if (empty($worksheetInfo)) {
+                return back()->withInput()->withErrors(['file' => 'File tidak memiliki sheet yang dapat dibaca.']);
+            }
+
+            $sheetNames = array_values(array_map(fn (array $info): string => (string) $info['worksheetName'], $worksheetInfo));
+            $sheetRowCountMap = [];
+            foreach ($worksheetInfo as $info) {
+                $sheetRowCountMap[(string) $info['worksheetName']] = (int) ($info['totalRows'] ?? 0);
+            }
+
             $targetCategoryLabel = $categoryLabels[$targetCategory] ?? strtoupper($targetCategory);
-
-            // Requirement 3.1: Telusuri semua sheet (getSheetNames) dan pilih sheet yang namanya cocok dengan target.
             $sheetCategoryMap = [];
             $matchingSheetName = null;
 
@@ -211,51 +259,8 @@ class TaskImportExportController extends Controller
             }
 
             if ($matchingSheetName !== null) {
-                $sheet = $spreadsheet->getSheetByName($matchingSheetName);
-                if ($sheet) {
-                    $rows = $sheet->toArray(null, true, false, false);
-                    $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, $targetCategory);
-                }
-            } elseif ($targetCategory === Task::CATEGORY_BAA) {
-                // Khusus BAA: Jika tidak ditemukan sheet dengan nama eksplisit BAA,
-                // cari sheet pertama yang header-nya cocok dengan format BAA (ada kolom "ID PA" dan "NAMA PELANGGAN").
-                foreach ($spreadsheet->getAllSheets() as $candSheet) {
-                    $candDetected = $this->detectCategoryFromSheetTitle($candSheet->getTitle());
-                    if ($candDetected && $candDetected !== Task::CATEGORY_BAA) {
-                        continue;
-                    }
-
-                    $sRows = $candSheet->toArray(null, true, false, false);
-                    $hIndex = $sbuMapper->findHeaderRowIndex($sRows, Task::CATEGORY_BAA);
-                    if ($hIndex !== null) {
-                        $catInfo = $sbuMapper->detectCategoryWithMarkers($sRows[$hIndex]);
-                        if ($catInfo['category'] === null || $catInfo['category'] === Task::CATEGORY_BAA) {
-                            $sheet = $candSheet;
-                            $headerRowIndex = $hIndex;
-                            break;
-                        }
-                    }
-                }
-
-                if (! $sheet && ! empty($sheetCategoryMap)) {
-                    $detectedDetails = [];
-                    $detectedCategoryNames = [];
-                    foreach ($sheetCategoryMap as $sName => $sCat) {
-                        $lbl = $categoryLabels[$sCat] ?? $sCat;
-                        $detectedDetails[] = "'{$sName}' (terdeteksi sebagai {$lbl})";
-                        $detectedCategoryNames[$sCat] = $lbl;
-                    }
-                    $foundSheetsList = implode(', ', array_map(fn ($n) => "'{$n}'", $sheetNames));
-                    $detectedNamesStr = implode(', ', array_unique($detectedCategoryNames));
-
-                    return back()->withInput()->withErrors([
-                        'file' => "Import ditolak: tidak ditemukan sheet untuk modul {$targetCategoryLabel}. "
-                            ."Sheet yang ditemukan dalam file: {$foundSheetsList} [".implode(', ', $detectedDetails).']. '
-                            ."File ini terdeteksi sebagai {$detectedNamesStr}, sedangkan modul yang dipilih {$targetCategoryLabel}.",
-                    ]);
-                }
+                $selectedSheetName = $matchingSheetName;
             } elseif (! empty($sheetCategoryMap)) {
-                // Sheet teridentifikasi ada, tapi tidak ada yang cocok dengan target category
                 $detectedDetails = [];
                 $detectedCategoryNames = [];
                 foreach ($sheetCategoryMap as $sName => $sCat) {
@@ -272,53 +277,180 @@ class TaskImportExportController extends Controller
                         ."File ini terdeteksi sebagai {$detectedNamesStr}, sedangkan modul yang dipilih {$targetCategoryLabel}.",
                 ]);
             } else {
-                // Kategori tidak dapat dideteksi dari nama sheet; ambil sheet pertama
+                $selectedSheetName = $sheetNames[0];
+            }
+
+            $totalSheetRows = $sheetRowCountMap[$selectedSheetName] ?? 0;
+            $previewRows = $this->readExcelChunkRows($realPath, $selectedSheetName, 1, 35);
+            if ($totalSheetRows <= 1 || count($previewRows) <= 1) {
+                return back()->withInput()->withErrors(['file' => "Sheet '{$selectedSheetName}' kosong atau hanya berisi baris judul header."]);
+            }
+
+            $headerRowIndex = $sbuMapper->findHeaderRowIndex($previewRows, $targetCategory);
+            if ($headerRowIndex === null) {
+                return back()->withInput()->withErrors([
+                    'file' => "Import ditolak: Baris header kolom (ID PA atau Nomor Dokumen) tidak ditemukan di sheet '{$selectedSheetName}'.",
+                ]);
+            }
+
+            $headerRow = $previewRows[$headerRowIndex];
+        } else {
+            try {
+                $spreadsheet = IOFactory::load($realPath);
+            } catch (\Exception $e) {
+                return back()->withInput()->withErrors(['file' => 'Gagal membaca file spreadsheet: '.$e->getMessage()]);
+            }
+
+            $sheetNames = $spreadsheet->getSheetNames();
+            if (empty($sheetNames)) {
+                return back()->withInput()->withErrors(['file' => 'File tidak memiliki sheet yang dapat dibaca.']);
+            }
+
+            /** @var Worksheet|null $sheet */
+            $sheet = null;
+
+            if ($targetCategory) {
+                $targetCategoryLabel = $categoryLabels[$targetCategory] ?? strtoupper($targetCategory);
+
+                // Requirement 3.1: Telusuri semua sheet (getSheetNames) dan pilih sheet yang namanya cocok dengan target.
+                $sheetCategoryMap = [];
+                $matchingSheetName = null;
+
+                foreach ($sheetNames as $sName) {
+                    $detected = $this->detectCategoryFromSheetTitle($sName);
+                    if ($detected) {
+                        $sheetCategoryMap[$sName] = $detected;
+                        if ($detected === $targetCategory && $matchingSheetName === null) {
+                            $matchingSheetName = $sName;
+                        }
+                    }
+                }
+
+                if ($matchingSheetName !== null) {
+                    $sheet = $spreadsheet->getSheetByName($matchingSheetName);
+                    if ($sheet) {
+                        $rows = $sheet->toArray(null, true, false, false);
+                        $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, $targetCategory);
+                    }
+                } elseif ($targetCategory === Task::CATEGORY_BAA) {
+                    // Khusus BAA: Jika tidak ditemukan sheet dengan nama eksplisit BAA,
+                    // cari sheet pertama yang header-nya cocok dengan format BAA (ada kolom "ID PA" dan "NAMA PELANGGAN").
+                    foreach ($spreadsheet->getAllSheets() as $candSheet) {
+                        $candDetected = $this->detectCategoryFromSheetTitle($candSheet->getTitle());
+                        if ($candDetected && $candDetected !== Task::CATEGORY_BAA) {
+                            continue;
+                        }
+
+                        $sRows = $candSheet->toArray(null, true, false, false);
+                        $hIndex = $sbuMapper->findHeaderRowIndex($sRows, Task::CATEGORY_BAA);
+                        if ($hIndex !== null) {
+                            $catInfo = $sbuMapper->detectCategoryWithMarkers($sRows[$hIndex]);
+                            if ($catInfo['category'] === null || $catInfo['category'] === Task::CATEGORY_BAA) {
+                                $sheet = $candSheet;
+                                $headerRowIndex = $hIndex;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (! $sheet && ! empty($sheetCategoryMap)) {
+                        $detectedDetails = [];
+                        $detectedCategoryNames = [];
+                        foreach ($sheetCategoryMap as $sName => $sCat) {
+                            $lbl = $categoryLabels[$sCat] ?? $sCat;
+                            $detectedDetails[] = "'{$sName}' (terdeteksi sebagai {$lbl})";
+                            $detectedCategoryNames[$sCat] = $lbl;
+                        }
+                        $foundSheetsList = implode(', ', array_map(fn ($n) => "'{$n}'", $sheetNames));
+                        $detectedNamesStr = implode(', ', array_unique($detectedCategoryNames));
+
+                        return back()->withInput()->withErrors([
+                            'file' => "Import ditolak: tidak ditemukan sheet untuk modul {$targetCategoryLabel}. "
+                                ."Sheet yang ditemukan dalam file: {$foundSheetsList} [".implode(', ', $detectedDetails).']. '
+                                ."File ini terdeteksi sebagai {$detectedNamesStr}, sedangkan modul yang dipilih {$targetCategoryLabel}.",
+                        ]);
+                    }
+                } elseif (! empty($sheetCategoryMap)) {
+                    // Sheet teridentifikasi ada, tapi tidak ada yang cocok dengan target category
+                    $detectedDetails = [];
+                    $detectedCategoryNames = [];
+                    foreach ($sheetCategoryMap as $sName => $sCat) {
+                        $lbl = $categoryLabels[$sCat] ?? $sCat;
+                        $detectedDetails[] = "'{$sName}' (terdeteksi sebagai {$lbl})";
+                        $detectedCategoryNames[$sCat] = $lbl;
+                    }
+                    $foundSheetsList = implode(', ', array_map(fn ($n) => "'{$n}'", $sheetNames));
+                    $detectedNamesStr = implode(', ', array_unique($detectedCategoryNames));
+
+                    return back()->withInput()->withErrors([
+                        'file' => "Import ditolak: tidak ditemukan sheet untuk modul {$targetCategoryLabel}. "
+                            ."Sheet yang ditemukan dalam file: {$foundSheetsList} [".implode(', ', $detectedDetails).']. '
+                            ."File ini terdeteksi sebagai {$detectedNamesStr}, sedangkan modul yang dipilih {$targetCategoryLabel}.",
+                    ]);
+                } else {
+                    // Kategori tidak dapat dideteksi dari nama sheet; ambil sheet pertama
+                    $sheet = $spreadsheet->getSheet(0);
+                    if ($sheet) {
+                        $rows = $sheet->toArray(null, true, false, false);
+                        $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, $targetCategory);
+                    }
+                }
+            } else {
                 $sheet = $spreadsheet->getSheet(0);
                 if ($sheet) {
                     $rows = $sheet->toArray(null, true, false, false);
-                    $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, $targetCategory);
+                    $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, null);
                 }
             }
-        } else {
-            $sheet = $spreadsheet->getSheet(0);
-            if ($sheet) {
-                $rows = $sheet->toArray(null, true, false, false);
-                $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, null);
-            }
-        }
 
-        if (! $sheet) {
-            if ($targetCategory === Task::CATEGORY_BAA) {
+            if (! $sheet) {
+                if ($targetCategory === Task::CATEGORY_BAA) {
+                    return back()->withInput()->withErrors([
+                        'file' => "Import ditolak: Tidak ditemukan sheet yang cocok dengan format BAA (kolom 'ID PA' dan 'NAMA PELANGGAN' tidak ditemukan pada sheet mana pun di file ini).",
+                    ]);
+                }
+
+                return back()->withInput()->withErrors(['file' => 'Tidak ada sheet yang dapat diproses dari file ini.']);
+            }
+
+            $selectedSheetName = $sheet->getTitle();
+            $inMemoryRows = $sheet->toArray(null, true, false, false);
+            if (count($inMemoryRows) <= 1) {
+                return back()->withInput()->withErrors(['file' => "Sheet '{$selectedSheetName}' kosong atau hanya berisi baris judul header."]);
+            }
+
+            if ($headerRowIndex === null) {
+                $headerRowIndex = $sbuMapper->findHeaderRowIndex($inMemoryRows, $targetCategory);
+            }
+
+            if ($headerRowIndex === null) {
+                if ($targetCategory === Task::CATEGORY_BAA) {
+                    return back()->withInput()->withErrors([
+                        'file' => "Import ditolak: Kolom 'ID PA' dan 'NAMA PELANGGAN' tidak ditemukan di sheet '{$selectedSheetName}'. Pastikan sheet memiliki baris header yang valid.",
+                    ]);
+                }
+
                 return back()->withInput()->withErrors([
-                    'file' => "Import ditolak: Tidak ditemukan sheet yang cocok dengan format BAA (kolom 'ID PA' dan 'NAMA PELANGGAN' tidak ditemukan pada sheet mana pun di file ini).",
+                    'file' => "Import ditolak: Baris header kolom (ID PA atau Nomor Dokumen) tidak ditemukan di sheet '{$selectedSheetName}'.",
                 ]);
             }
 
-            return back()->withInput()->withErrors(['file' => 'Tidak ada sheet yang dapat diproses dari file ini.']);
+            $headerRow = $inMemoryRows[$headerRowIndex];
         }
 
-        $rows = $sheet->toArray(null, true, false, false);
-        if (count($rows) <= 1) {
-            return back()->withInput()->withErrors(['file' => "Sheet '{$sheet->getTitle()}' kosong atau hanya berisi baris judul header."]);
-        }
-
-        if ($headerRowIndex === null) {
-            $headerRowIndex = $sbuMapper->findHeaderRowIndex($rows, $targetCategory);
-        }
-
-        if ($headerRowIndex === null) {
-            if ($targetCategory === Task::CATEGORY_BAA) {
-                return back()->withInput()->withErrors([
-                    'file' => "Import ditolak: Kolom 'ID PA' dan 'NAMA PELANGGAN' tidak ditemukan di sheet '{$sheet->getTitle()}'. Pastikan sheet memiliki baris header yang valid.",
-                ]);
+        $makeRowChunks = function () use ($isCsvFile, $targetCategory, $realPath, $selectedSheetName, $headerRowIndex, $totalSheetRows, $inMemoryRows): iterable {
+            if ($isCsvFile) {
+                return $this->streamCsvRowChunks($realPath, $headerRowIndex + 1, 500);
+            }
+            if ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                return $this->streamExcelRowChunks($realPath, $selectedSheetName, $headerRowIndex + 1, $totalSheetRows, 1000);
             }
 
-            return back()->withInput()->withErrors([
-                'file' => "Import ditolak: Baris header kolom (ID PA atau Nomor Dokumen) tidak ditemukan di sheet '{$sheet->getTitle()}'.",
-            ]);
-        }
+            $sliced = array_slice($inMemoryRows ?? [], $headerRowIndex + 1, null, true);
 
-        $headerRow = $rows[$headerRowIndex];
+            return array_chunk($sliced, 500, true);
+        };
+
         $isSbuFormat = $sbuMapper->detectFormat($headerRow) === 'sbu';
 
         // Requirement 3.2 & 3.3: Pemeriksaan kedua (berdasarkan penanda isi) SEBELUM loop insert
@@ -350,38 +482,39 @@ class TaskImportExportController extends Controller
                 $mismatchedRows = [];
                 $mismatchedCategories = [];
 
-                for ($i = $headerRowIndex + 1; $i < count($rows); $i++) {
-                    $row = $rows[$i];
-                    $rowNum = $i + 1;
+                foreach ($makeRowChunks() as $chunk) {
+                    foreach ($chunk as $i => $row) {
+                        $rowNum = $i + 1;
 
-                    // Lewati baris yang benar-benar kosong
-                    $hasAnyData = false;
-                    foreach ($row as $val) {
-                        if (trim((string) $val) !== '') {
-                            $hasAnyData = true;
-                            break;
+                        // Lewati baris yang benar-benar kosong
+                        $hasAnyData = false;
+                        foreach ($row as $val) {
+                            if (trim((string) $val) !== '') {
+                                $hasAnyData = true;
+                                break;
+                            }
                         }
-                    }
-                    if (! $hasAnyData) {
-                        continue;
-                    }
-
-                    $rawCategory = trim((string) ($row[0] ?? ''));
-                    $rowCategory = $this->normalizeCategory($rawCategory);
-                    $docNumber = trim((string) ($row[1] ?? ''));
-
-                    if ($rowCategory) {
-                        if ($rowCategory !== $targetCategory) {
-                            $mismatchedRows[] = $rowNum;
-                            $mismatchedCategories[$rowCategory] = $categoryLabels[$rowCategory] ?? $rowCategory;
+                        if (! $hasAnyData) {
+                            continue;
                         }
-                    } else {
-                        // Kolom Kategori kosong diperlakukan sebagai ikut target, tapi periksa apakah penanda nomor dokumen bertentangan
-                        $detectedDocCat = $this->detectCategoryFromDocNumber($docNumber);
-                        if ($detectedDocCat && $detectedDocCat !== $targetCategory) {
-                            $mismatchedRows[] = $rowNum;
-                            $catName = $categoryLabels[$detectedDocCat] ?? $detectedDocCat;
-                            $mismatchedCategories[$detectedDocCat] = "{$catName} (nomor dokumen: {$docNumber})";
+
+                        $rawCategory = trim((string) ($row[0] ?? ''));
+                        $rowCategory = $this->normalizeCategory($rawCategory);
+                        $docNumber = trim((string) ($row[1] ?? ''));
+
+                        if ($rowCategory) {
+                            if ($rowCategory !== $targetCategory) {
+                                $mismatchedRows[] = $rowNum;
+                                $mismatchedCategories[$rowCategory] = $categoryLabels[$rowCategory] ?? $rowCategory;
+                            }
+                        } else {
+                            // Kolom Kategori kosong diperlakukan sebagai ikut target, tapi periksa apakah penanda nomor dokumen bertentangan
+                            $detectedDocCat = $this->detectCategoryFromDocNumber($docNumber);
+                            if ($detectedDocCat && $detectedDocCat !== $targetCategory) {
+                                $mismatchedRows[] = $rowNum;
+                                $catName = $categoryLabels[$detectedDocCat] ?? $detectedDocCat;
+                                $mismatchedCategories[$detectedDocCat] = "{$catName} (nomor dokumen: {$docNumber})";
+                            }
                         }
                     }
                 }
@@ -431,400 +564,531 @@ class TaskImportExportController extends Controller
         $updatedCount = 0;
         $unchangedCount = 0;
         $skippedCount = 0;
+        $totalRowsRead = 0;
+        $skippedEmptyCount = 0;
+        $skippedApprovedCount = 0; // APPROVED kini diproses, jadi selalu 0 (dipertahankan untuk ringkasan)
         $importedCommentsCount = 0;
         $detailRecords = [];
         $errors = [];
         $importWarnings = [];
         $distribution = [];
+        $currentSectionKp = null;
 
         DB::beginTransaction();
         try {
-            // Skip header row(s) and start from data row
-            for ($i = $headerRowIndex + 1; $i < count($rows); $i++) {
-                $row = $rows[$i];
-                $rowNum = $i + 1;
+            // Process rows in chunks / streaming to avoid loading large files into memory at once
+            foreach ($makeRowChunks() as $chunk) {
+                foreach ($chunk as $i => $row) {
+                    $rowNum = $i + 1;
+                    $totalRowsRead++;
+                    $normStatusVerif = null;
 
-                if ($sbuMapper->isRowEmpty($row)) {
-                    continue;
-                }
-
-                if ($isSbuFormat) {
-                    $mapped = $sbuMapper->mapRow($row, $columnMap, $targetCategory);
-                    if ($mapped === null) {
-                        continue;
-                    }
-
-                    $category = $mapped['category'];
-                    $docNumber = $mapped['document_number'];
-                    $title = $mapped['title'];
-                    $description = $mapped['description'];
-                    $customerName = $mapped['customer_name'];
-                    $serviceType = $mapped['service_type'];
-                    $kp = $mapped['kp'];
-                    $kategoriSegmen = $mapped['kategori_segmen'];
-                    $priority = $mapped['priority'];
-                    $status = $mapped['status'] ?? Task::STATUS_PENDING;
-                    $rawStatus = $mapped['raw_status'] ?? null;
-                    $parsedStartDate = $mapped['start_date'];
-                    $parsedDueDate = $mapped['due_date'];
-                    $userIdentifier = $mapped['sales_identifier'];
-                    $rpException = $mapped['rp_exception'] ?? 0;
-                    $hargaBaru = $mapped['harga_baru'] ?? 0;
-                    $comments = $mapped['comments'] ?? null;
-                    $confirmTo = $mapped['confirm_to'] ?? null;
-                    $idPelanggan = $mapped['id_pelanggan'] ?? null;
-                } else {
-                    $rawCategory = strtolower(trim($row[0] ?? ''));
-                    $docNumber = trim((string) ($row[1] ?? ''));
-                    $title = trim($row[2] ?? '');
-                    $userIdentifier = trim((string) ($row[3] ?? ''));
-                    $customerName = trim($row[4] ?? '');
-                    $serviceType = trim($row[5] ?? '');
-                    $priority = strtolower(trim($row[6] ?? 'medium'));
-                    $startDate = trim($row[7] ?? '');
-                    $dueDate = trim($row[8] ?? '');
-                    $description = trim($row[9] ?? '');
-                    $kp = null;
-                    $kategoriSegmen = Task::SEGMEN_PUBLIK;
-                    $status = Task::STATUS_PENDING;
-                    $rawStatus = null;
-                    $rpException = 0;
-                    $hargaBaru = 0;
-                    $comments = null;
-                    $confirmTo = null;
-                    $idPelanggan = null;
-
-                    // Skip completely empty rows
-                    if (! $docNumber && ! $title && ! $rawCategory && ! $userIdentifier) {
-                        continue;
-                    }
-
-                    // Category resolution: use selected target_category if specified, otherwise parse from row or detect from doc number
-                    if ($targetCategory) {
-                        $category = $targetCategory;
-                    } else {
-                        $category = $this->normalizeCategory($rawCategory) ?? $this->detectCategoryFromDocNumber($docNumber);
-                    }
-
-                    if (! $category || ! in_array($category, $validCategories, true)) {
-                        $errors[] = "Baris #{$rowNum}: Kategori '{$row[0]}' tidak dikenali. Tentukan Target Modul di form atau isi kolom kategori sesuai template.";
+                    // Detect KP section header row (e.g. "KP JEMBER (8 data)" or "KP SURABAYA")
+                    $nonEmptyCells = array_values(array_filter(array_map(fn ($v) => trim((string) ($v ?? '')), $row), fn ($v) => $v !== ''));
+                    if (count($nonEmptyCells) <= 2 && ! empty($nonEmptyCells[0]) && preg_match('/^kp\s+(surabaya|malang|madiun|jember)\b/i', $nonEmptyCells[0], $kpMatch)) {
+                        $currentSectionKp = strtolower($kpMatch[1]);
+                        $skippedEmptyCount++;
 
                         continue;
                     }
 
-                    if (! $docNumber) {
-                        $errors[] = "Baris #{$rowNum}: Nomor dokumen wajib diisi.";
+                    // Verifikasi Kontrak (format SBU): semua baris valid diproses, termasuk APPROVED.
+                    if ($isSbuFormat && $targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                        if ($sbuMapper->isRowEmpty($row)) {
+                            $skippedEmptyCount++;
 
-                        continue;
-                    }
-
-                    if (! $title) {
-                        $title = 'Tugas '.strtoupper($category).' - '.$docNumber;
-                    }
-
-                    // Priority default check
-                    if (! in_array($priority, ['low', 'medium', 'high', 'urgent'], true)) {
-                        $priority = 'medium';
-                    }
-
-                    // Parse dates
-                    $parsedStartDate = null;
-                    $parsedDueDate = null;
-                    try {
-                        if ($startDate) {
-                            $parsedStartDate = Carbon::parse($startDate)->toDateString();
+                            continue;
                         }
-                        if ($dueDate) {
-                            $parsedDueDate = Carbon::parse($dueDate)->toDateString();
+
+                        $rawStatusVerif = '';
+                        if (($columnMap['status_verifikasi'] ?? null) !== null) {
+                            $rawStatusVerif = trim((string) ($row[$columnMap['status_verifikasi']] ?? ''), " \t\n\r\0\x0B");
+                            $normStatusVerif = $sbuMapper->normalizeStatusVerifikasi($rawStatusVerif);
+
+                            // Baris tanpa STATUS VERIFIKASI (catatan/legenda/footer) dilewati sebagai kosong, bukan error
+                            if ($rawStatusVerif === '' || $normStatusVerif === null) {
+                                $skippedEmptyCount++;
+
+                                continue;
+                            }
+                        }
+
+                        // Baris catatan/footer satu kolom tanpa data pendukung dilewati
+                        if (count($nonEmptyCells) <= 1) {
+                            $skippedEmptyCount++;
+
+                            continue;
+                        }
+
+                        // Nomor kontrak diambil dari kolom "NOMOR KONTRAK", bukan "NOMOR KONTRAK MITRA".
+                        $docColIdx = $columnMap['document_number'] ?? $columnMap['nomor_kontrak'] ?? null;
+                        $rawDocCell = $docColIdx !== null ? ($row[$docColIdx] ?? '') : '';
+                        $docCheck = $sbuMapper->formatDocumentNumber($rawDocCell);
+
+                        if ($docCheck === '') {
+                            $skippedEmptyCount++;
+
+                            continue;
+                        }
+
+                        if (! preg_match('/[a-zA-Z0-9]/', $docCheck)) {
+                            $errors[] = "Baris #{$rowNum}: Nomor Kontrak '{$docCheck}' tidak valid.";
+
+                            continue;
+                        }
+
+                        if ($normStatusVerif !== null && ! in_array($normStatusVerif, ['SEND BACK', 'APPROVED'], true)) {
+                            $errors[] = "Baris #{$rowNum} ({$docCheck}): Gagal diimpor karena STATUS VERIFIKASI '{$rawStatusVerif}' tidak valid (harus SEND BACK atau APPROVED).";
+
+                            continue;
+                        }
+                    } elseif ($sbuMapper->isRowEmpty($row)) {
+                        $skippedEmptyCount++;
+
+                        continue;
+                    }
+
+                    if ($isSbuFormat) {
+                        $mapped = $sbuMapper->mapRow($row, $columnMap, $targetCategory);
+                        if ($mapped === null) {
+                            $skippedEmptyCount++;
+
+                            continue;
+                        }
+
+                        $category = $mapped['category'];
+                        $docNumber = $mapped['document_number'];
+                        $title = $mapped['title'];
+                        $description = $mapped['description'];
+                        $verificationNote = $mapped['verification_note'] ?? null;
+                        $customerName = $mapped['customer_name'];
+                        $serviceType = $mapped['service_type'];
+                        $kp = $mapped['kp'] ?: $currentSectionKp;
+                        $kategoriSegmen = $mapped['kategori_segmen'];
+                        $priority = $mapped['priority'];
+                        $status = Task::STATUS_PENDING;
+                        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                            // APPROVED -> selesai; SEND BACK / kosong -> belum selesai (pending)
+                            $status = $normStatusVerif === 'APPROVED' ? Task::STATUS_APPROVED : Task::STATUS_PENDING;
+                        }
+                        $rawStatus = $mapped['raw_status'] ?? null;
+                        $parsedStartDate = $mapped['start_date'];
+                        $parsedDueDate = $mapped['due_date'];
+                        $userIdentifier = $mapped['sales_identifier'];
+                        $rpException = $mapped['rp_exception'] ?? 0;
+                        $hargaBaru = $mapped['harga_baru'] ?? 0;
+                        $comments = $mapped['comments'] ?? null;
+                        $confirmTo = $mapped['confirm_to'] ?? null;
+                        $idPelanggan = $mapped['id_pelanggan'] ?? null;
+                    } else {
+                        $rawCategory = strtolower(trim($row[0] ?? ''));
+                        $docNumber = trim((string) ($row[1] ?? ''));
+                        $title = trim($row[2] ?? '');
+                        $userIdentifier = trim((string) ($row[3] ?? ''));
+                        $customerName = trim($row[4] ?? '');
+                        $serviceType = trim($row[5] ?? '');
+                        $priority = strtolower(trim($row[6] ?? 'medium'));
+                        $startDate = trim($row[7] ?? '');
+                        $dueDate = trim($row[8] ?? '');
+                        $description = trim($row[9] ?? '');
+                        $verificationNote = null;
+                        $kp = $currentSectionKp;
+                        $kategoriSegmen = Task::SEGMEN_PUBLIK;
+                        $status = Task::STATUS_PENDING;
+                        $rawStatus = null;
+                        $rpException = 0;
+                        $hargaBaru = 0;
+                        $comments = null;
+                        $confirmTo = null;
+                        $idPelanggan = null;
+
+                        if ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION && $docNumber === '') {
+                            $skippedEmptyCount++;
+
+                            continue;
+                        }
+
+                        // Skip completely empty rows
+                        if (! $docNumber && ! $title && ! $rawCategory && ! $userIdentifier) {
+                            $skippedEmptyCount++;
+
+                            continue;
+                        }
+
+                        // Category resolution: use selected target_category if specified, otherwise parse from row or detect from doc number
+                        if ($targetCategory) {
+                            $category = $targetCategory;
                         } else {
+                            $category = $this->normalizeCategory($rawCategory) ?? $this->detectCategoryFromDocNumber($docNumber);
+                        }
+
+                        if (! $category || ! in_array($category, $validCategories, true)) {
+                            $errors[] = "Baris #{$rowNum}: Kategori '{$row[0]}' tidak dikenali. Tentukan Target Modul di form atau isi kolom kategori sesuai template.";
+
+                            continue;
+                        }
+
+                        if (! $docNumber) {
+                            $errors[] = "Baris #{$rowNum}: Nomor dokumen wajib diisi.";
+
+                            continue;
+                        }
+
+                        if (! $title) {
+                            $title = 'Tugas '.strtoupper($category).' - '.$docNumber;
+                        }
+
+                        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                            $customerName = $sbuMapper->cleanCustomerName($customerName);
+                            $userIdentifier = $sbuMapper->cleanSalesName($userIdentifier);
+                            $verificationNote = $description ?: null;
+                            $status = Task::STATUS_PENDING;
+                        }
+
+                        // Priority default check
+                        if (! in_array($priority, ['low', 'medium', 'high', 'urgent'], true)) {
+                            $priority = 'medium';
+                        }
+
+                        // Parse dates
+                        $parsedStartDate = null;
+                        $parsedDueDate = null;
+                        try {
+                            if ($startDate) {
+                                $parsedStartDate = Carbon::parse($startDate)->toDateString();
+                            }
+                            if ($dueDate) {
+                                $parsedDueDate = Carbon::parse($dueDate)->toDateString();
+                            } else {
+                                $parsedDueDate = Carbon::today()->addDays(2)->toDateString();
+                            }
+                        } catch (\Exception) {
                             $parsedDueDate = Carbon::today()->addDays(2)->toDateString();
                         }
-                    } catch (\Exception) {
-                        $parsedDueDate = Carbon::today()->addDays(2)->toDateString();
                     }
-                }
 
-                // Match user by Email, NIP, Full Name, or First Name
-                $targetUser = null;
-                if ($userIdentifier) {
-                    $cleanIdent = strtolower(trim($userIdentifier));
-                    $cleanIdent = preg_replace('/\s*\([^)]*\)/', '', $cleanIdent);
-                    $cleanIdent = preg_replace('/[^a-z0-9\s]/', ' ', $cleanIdent);
-                    $cleanIdent = preg_replace('/\s+/', ' ', trim($cleanIdent));
+                    if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                        $customerName = $sbuMapper->cleanCustomerName($customerName);
+                        $userIdentifier = $sbuMapper->cleanSalesName($userIdentifier);
+                    }
 
-                    if (isset($usersByEmail[$cleanIdent])) {
-                        $targetUser = $usersByEmail[$cleanIdent];
-                    } elseif (isset($usersByNip[$cleanIdent])) {
-                        $targetUser = $usersByNip[$cleanIdent];
-                    } elseif (isset($usersByName[$cleanIdent])) {
-                        $targetUser = $usersByName[$cleanIdent];
+                    // Match user by Email, NIP, Full Name, or First Name
+                    $targetUser = null;
+                    if ($userIdentifier) {
+                        $cleanIdent = strtolower(trim($userIdentifier));
+                        $cleanIdent = preg_replace('/\s*\([^)]*\)/', '', $cleanIdent);
+                        $cleanIdent = preg_replace('/[^a-z0-9\s]/', ' ', $cleanIdent);
+                        $cleanIdent = preg_replace('/\s+/', ' ', trim($cleanIdent));
+
+                        if (isset($usersByEmail[$cleanIdent])) {
+                            $targetUser = $usersByEmail[$cleanIdent];
+                        } elseif (isset($usersByNip[$cleanIdent])) {
+                            $targetUser = $usersByNip[$cleanIdent];
+                        } elseif (isset($usersByName[$cleanIdent])) {
+                            $targetUser = $usersByName[$cleanIdent];
+                        } else {
+                            // Check partial / contains full name
+                            foreach ($usersByName as $uname => $u) {
+                                if (str_contains($cleanIdent, $uname) || str_contains($uname, $cleanIdent)) {
+                                    $targetUser = $u;
+                                    break;
+                                }
+                            }
+
+                            // Check unique first name
+                            if (! $targetUser) {
+                                $identFirstWord = explode(' ', $cleanIdent)[0] ?? '';
+                                if ($identFirstWord && ! empty($usersByFirstName[$identFirstWord])) {
+                                    $targetUser = $usersByFirstName[$identFirstWord];
+                                }
+                            }
+
+                            // Check name similarity using similar_text
+                            if (! $targetUser) {
+                                $bestSimilarity = 0.0;
+                                $bestMatchUser = null;
+
+                                foreach ($usersByName as $cleanUName => $u) {
+                                    similar_text($cleanIdent, $cleanUName, $percent);
+                                    if ($percent > $bestSimilarity) {
+                                        $bestSimilarity = $percent;
+                                        $bestMatchUser = $u;
+                                    }
+                                }
+
+                                if ($bestMatchUser) {
+                                    if ($bestSimilarity >= 90.0) {
+                                        // Rule 1: >= 90% -> Auto match and assign
+                                        $targetUser = $bestMatchUser;
+                                    } elseif ($bestSimilarity >= 70.0) {
+                                        // Rule 2: 70% - 89% -> Keep fallback, flag as "Perlu Konfirmasi"
+                                        $percentFormatted = number_format($bestSimilarity, 1);
+                                        $importWarnings[] = "Baris #{$rowNum} ({$docNumber}): Perlu Konfirmasi — '{$userIdentifier}' mirip ({$percentFormatted}%) dengan '{$bestMatchUser->name}'. Tugas sementara dialihkan ke fallback (Admin/Default). Tolong cek manual di halaman Kelola Karyawan atau edit task ini.";
+                                    }
+                                    // Rule 3: < 70% -> Ordinary fallback, no special note
+                                }
+                            }
+                        }
+                    }
+
+                    if ($targetUser) {
+                        $targetUserId = $targetUser->id;
+                        $targetUserName = $targetUser->name;
+                    } elseif ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                        if ($defaultUserId) {
+                            $targetUserId = (int) $defaultUserId;
+                            $fallbackUser = $allUsers->firstWhere('id', $targetUserId);
+                            $targetUserName = $fallbackUser ? $fallbackUser->name : ($userIdentifier ?: 'Belum ada PIC');
+                        } else {
+                            $targetUserId = null;
+                            $targetUserName = $userIdentifier ?: 'Belum ada PIC';
+                        }
                     } else {
-                        // Check partial / contains full name
-                        foreach ($usersByName as $uname => $u) {
-                            if (str_contains($cleanIdent, $uname) || str_contains($uname, $cleanIdent)) {
-                                $targetUser = $u;
-                                break;
+                        $targetUserId = $defaultUserId ?: Auth::id();
+                        $fallbackUser = $allUsers->firstWhere('id', $targetUserId);
+                        $targetUserName = $fallbackUser ? $fallbackUser->name : 'Admin';
+                    }
+
+                    try {
+                        // Anti-duplicate check!
+                        $existing = Task::where('category', $category)
+                            ->where('document_number', $docNumber)
+                            ->first();
+
+                        if ($existing) {
+                            if ($duplicateAction === 'fail') {
+                                DB::rollBack();
+
+                                return back()->withErrors([
+                                    'file' => "Import dibatalkan: Dokumen duplikat terdeteksi pada baris #{$rowNum} ('{$docNumber}' dalam kategori {$category}).",
+                                ]);
                             }
-                        }
 
-                        // Check unique first name
-                        if (! $targetUser) {
-                            $identFirstWord = explode(' ', $cleanIdent)[0] ?? '';
-                            if ($identFirstWord && ! empty($usersByFirstName[$identFirstWord])) {
-                                $targetUser = $usersByFirstName[$identFirstWord];
-                            }
-                        }
-
-                        // Check name similarity using similar_text
-                        if (! $targetUser) {
-                            $bestSimilarity = 0.0;
-                            $bestMatchUser = null;
-
-                            foreach ($usersByName as $cleanUName => $u) {
-                                similar_text($cleanIdent, $cleanUName, $percent);
-                                if ($percent > $bestSimilarity) {
-                                    $bestSimilarity = $percent;
-                                    $bestMatchUser = $u;
+                            if ($duplicateAction === 'skip') {
+                                if ($category === Task::CATEGORY_SSO_OPEN && $confirmTo !== null && $existing->confirm_to !== $confirmTo) {
+                                    $existing->update(['confirm_to' => $confirmTo]);
                                 }
+                                $skippedCount++;
+
+                                continue;
                             }
 
-                            if ($bestMatchUser) {
-                                if ($bestSimilarity >= 90.0) {
-                                    // Rule 1: >= 90% -> Auto match and assign
-                                    $targetUser = $bestMatchUser;
-                                } elseif ($bestSimilarity >= 70.0) {
-                                    // Rule 2: 70% - 89% -> Keep fallback, flag as "Perlu Konfirmasi"
-                                    $percentFormatted = number_format($bestSimilarity, 1);
-                                    $importWarnings[] = "Baris #{$rowNum} ({$docNumber}): Perlu Konfirmasi — '{$userIdentifier}' mirip ({$percentFormatted}%) dengan '{$bestMatchUser->name}'. Tugas sementara dialihkan ke fallback (Admin/Default). Tolong cek manual di halaman Kelola Karyawan atau edit task ini.";
+                            if ($duplicateAction === 'update') {
+                                $updatePayload = [
+                                    'user_id' => $targetUserId,
+                                    'title' => $title,
+                                    'description' => $description ?: $existing->description,
+                                    'verification_note' => $verificationNote ?: $existing->verification_note,
+                                    'customer_name' => $category === Task::CATEGORY_CONTRACT_VERIFICATION ? $customerName : ($customerName ?: $existing->customer_name),
+                                    'service_type' => $serviceType ?: $existing->service_type,
+                                    'priority' => $priority,
+                                    'start_date' => $parsedStartDate ?: $existing->start_date,
+                                    'due_date' => $parsedDueDate ?: $existing->due_date,
+                                    'sales_name' => $category === Task::CATEGORY_CONTRACT_VERIFICATION ? $userIdentifier : ($userIdentifier ?: $existing->sales_name),
+                                    'rp_exception' => $rpException,
+                                    'harga_baru' => $hargaBaru,
+                                ];
+                                if ($idPelanggan !== null && $idPelanggan !== '') {
+                                    $updatePayload['id_pelanggan'] = $idPelanggan;
                                 }
-                                // Rule 3: < 70% -> Ordinary fallback, no special note
+                                if ($category === Task::CATEGORY_SSO_OPEN) {
+                                    $updatePayload['confirm_to'] = $confirmTo;
+                                }
+                                if ($category === Task::CATEGORY_BAA || $category === Task::CATEGORY_SSO_OPEN || $category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                                    $updatePayload['status'] = $status;
+                                    if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
+                                        $updatePayload['completed_at'] = now();
+                                        $updatePayload['confirmed_at'] = now();
+                                        $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                                        $updatePayload['reviewed_at'] = now();
+                                        $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (Done/Selesai).';
+                                    }
+                                } elseif ($category === Task::CATEGORY_EXCEPTION) {
+                                    $updatePayload['status'] = $status;
+                                    if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
+                                        $updatePayload['completed_at'] = now();
+                                        $updatePayload['confirmed_at'] = now();
+                                        $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                                        $updatePayload['reviewed_at'] = now();
+                                        $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (CLOSE)';
+                                    }
+                                } elseif ($category === Task::CATEGORY_KONTRAK_EXP) {
+                                    $updatePayload['status'] = $status;
+                                    if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
+                                        $updatePayload['completed_at'] = now();
+                                        $updatePayload['confirmed_at'] = now();
+                                        $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                                        $updatePayload['reviewed_at'] = now();
+                                        $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (Done)';
+                                    }
+                                }
+                                $allowedCommentCategories = SbuSheetMapper::allowedCommentCategories();
+
+                                if (in_array($category, $allowedCommentCategories, true) && ! empty($comments)) {
+                                    if (empty(trim((string) $existing->comments))) {
+                                        $updatePayload['comments'] = $comments;
+                                        $updatePayload['comment_updated_by'] = Auth::id();
+                                        $updatePayload['comment_updated_at'] = now();
+                                        $importedCommentsCount++;
+                                    }
+                                }
+                                if ($kp) {
+                                    $updatePayload['kp'] = $kp;
+                                }
+                                if ($kategoriSegmen) {
+                                    $updatePayload['kategori_segmen'] = $kategoriSegmen;
+                                }
+
+                                // Verifikasi Kontrak: SEND BACK tidak menimpa progres sales (in_progress/submitted),
+                                // dan kontrak yang tadinya approved lalu SEND BACK lagi dikembalikan ke belum selesai.
+                                if ($category === Task::CATEGORY_CONTRACT_VERIFICATION && $status !== Task::STATUS_APPROVED) {
+                                    if (in_array($existing->status, [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED], true)) {
+                                        $updatePayload['status'] = $existing->status;
+                                    } elseif ($existing->status === Task::STATUS_APPROVED) {
+                                        $updatePayload['completed_at'] = null;
+                                        $updatePayload['confirmed_at'] = null;
+                                        $updatePayload['confirmed_by'] = null;
+                                        $updatePayload['reviewed_at'] = null;
+                                    }
+                                }
+
+                                $existing->fill($updatePayload);
+                                $dirty = $existing->getDirty();
+
+                                $changedFields = [];
+                                foreach ($dirty as $field => $newValue) {
+                                    if (in_array($field, ['id', 'created_at', 'updated_at'], true)) {
+                                        continue;
+                                    }
+
+                                    $oldValue = $existing->getOriginal($field);
+                                    if (! $this->areValuesDifferent($field, $oldValue, $newValue)) {
+                                        $existing->setAttribute($field, $oldValue);
+
+                                        continue;
+                                    }
+
+                                    $changedFields[] = [
+                                        'task_id' => $existing->id,
+                                        'customer_name' => $existing->customer_name ?: $customerName,
+                                        'sid' => $existing->document_number ?: $docNumber,
+                                        'change_type' => 'updated',
+                                        'field' => $field,
+                                        'field_label' => $this->formatFieldLabel($field),
+                                        'old_value' => $this->formatFieldValueForLog($field, $oldValue, $allUsers),
+                                        'new_value' => $this->formatFieldValueForLog($field, $newValue, $allUsers),
+                                    ];
+                                }
+
+                                if (! empty($changedFields)) {
+                                    $existing->save();
+                                    $updatedCount++;
+                                    $distribution[$targetUserName] = ($distribution[$targetUserName] ?? 0) + 1;
+                                    foreach ($changedFields as $cf) {
+                                        $detailRecords[] = $cf;
+                                    }
+                                } else {
+                                    $unchangedCount++;
+                                }
+
+                                continue;
                             }
                         }
-                    }
-                }
 
-                if ($targetUser) {
-                    $targetUserId = $targetUser->id;
-                    $targetUserName = $targetUser->name;
-                } else {
-                    $targetUserId = $defaultUserId ?: Auth::id();
-                    $fallbackUser = $allUsers->firstWhere('id', $targetUserId);
-                    $targetUserName = $fallbackUser ? $fallbackUser->name : 'Admin';
-                }
-
-                // Anti-duplicate check!
-                $existing = Task::where('category', $category)
-                    ->where('document_number', $docNumber)
-                    ->first();
-
-                if ($existing) {
-                    if ($duplicateAction === 'fail') {
-                        return back()->withErrors([
-                            'file' => "Import dibatalkan: Dokumen duplikat terdeteksi pada baris #{$rowNum} ('{$docNumber}' dalam kategori {$category}).",
-                        ]);
-                    }
-
-                    if ($duplicateAction === 'skip') {
-                        if ($category === Task::CATEGORY_SSO_OPEN && $confirmTo !== null && $existing->confirm_to !== $confirmTo) {
-                            $existing->update(['confirm_to' => $confirmTo]);
-                        }
-                        $skippedCount++;
-
-                        continue;
-                    }
-
-                    if ($duplicateAction === 'update') {
-                        $updatePayload = [
+                        // Insert new task
+                        $newTaskPayload = [
                             'user_id' => $targetUserId,
+                            'assigned_by' => Auth::id(),
+                            'category' => $category,
+                            'document_number' => $docNumber,
                             'title' => $title,
-                            'description' => $description ?: $existing->description,
-                            'customer_name' => $customerName ?: $existing->customer_name,
-                            'service_type' => $serviceType ?: $existing->service_type,
+                            'description' => $description,
+                            'verification_note' => $verificationNote,
+                            'customer_name' => $customerName,
+                            'id_pelanggan' => $idPelanggan ?: null,
+                            'kp' => $kp,
+                            'kategori_segmen' => $kategoriSegmen,
+                            'service_type' => $serviceType,
                             'priority' => $priority,
-                            'start_date' => $parsedStartDate ?: $existing->start_date,
-                            'due_date' => $parsedDueDate ?: $existing->due_date,
-                            'sales_name' => $userIdentifier ?: $existing->sales_name,
+                            'status' => $status,
                             'rp_exception' => $rpException,
                             'harga_baru' => $hargaBaru,
+                            'start_date' => $parsedStartDate,
+                            'due_date' => $parsedDueDate,
+                            'sales_name' => $userIdentifier,
+                            'confirm_to' => $confirmTo,
                         ];
-                        if ($idPelanggan !== null && $idPelanggan !== '') {
-                            $updatePayload['id_pelanggan'] = $idPelanggan;
+
+                        if (($category === Task::CATEGORY_BAA || $category === Task::CATEGORY_SSO_OPEN || $category === Task::CATEGORY_CONTRACT_VERIFICATION) && $status === Task::STATUS_APPROVED) {
+                            $newTaskPayload['completed_at'] = now();
+                            $newTaskPayload['confirmed_at'] = now();
+                            $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                            $newTaskPayload['reviewed_at'] = now();
+                            $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import Excel (Done/Selesai).';
+                        } elseif ($category === Task::CATEGORY_EXCEPTION && $status === Task::STATUS_APPROVED) {
+                            $newTaskPayload['completed_at'] = now();
+                            $newTaskPayload['confirmed_at'] = now();
+                            $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                            $newTaskPayload['reviewed_at'] = now();
+                            $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import (CLOSE)';
+                        } elseif ($category === Task::CATEGORY_KONTRAK_EXP && $status === Task::STATUS_APPROVED) {
+                            $newTaskPayload['completed_at'] = now();
+                            $newTaskPayload['confirmed_at'] = now();
+                            $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                            $newTaskPayload['reviewed_at'] = now();
+                            $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import (Done)';
                         }
-                        if ($category === Task::CATEGORY_SSO_OPEN) {
-                            $updatePayload['confirm_to'] = $confirmTo;
-                        }
-                        if ($category === Task::CATEGORY_BAA || $category === Task::CATEGORY_SSO_OPEN) {
-                            $updatePayload['status'] = $status;
-                            if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
-                                $updatePayload['completed_at'] = now();
-                                $updatePayload['confirmed_at'] = now();
-                                $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                                $updatePayload['reviewed_at'] = now();
-                                $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (Done/Selesai).';
-                            }
-                        } elseif ($category === Task::CATEGORY_EXCEPTION) {
-                            $updatePayload['status'] = $status;
-                            if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
-                                $updatePayload['completed_at'] = now();
-                                $updatePayload['confirmed_at'] = now();
-                                $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                                $updatePayload['reviewed_at'] = now();
-                                $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (CLOSE)';
-                            }
-                        } elseif ($category === Task::CATEGORY_KONTRAK_EXP) {
-                            $updatePayload['status'] = $status;
-                            if ($status === Task::STATUS_APPROVED && ! $existing->confirmed_at) {
-                                $updatePayload['completed_at'] = now();
-                                $updatePayload['confirmed_at'] = now();
-                                $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                                $updatePayload['reviewed_at'] = now();
-                                $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (Done)';
-                            }
-                        }
+
                         $allowedCommentCategories = SbuSheetMapper::allowedCommentCategories();
 
                         if (in_array($category, $allowedCommentCategories, true) && ! empty($comments)) {
-                            if (empty(trim((string) $existing->comments))) {
-                                $updatePayload['comments'] = $comments;
-                                $updatePayload['comment_updated_by'] = Auth::id();
-                                $updatePayload['comment_updated_at'] = now();
-                                $importedCommentsCount++;
-                            }
-                        }
-                        if ($kp) {
-                            $updatePayload['kp'] = $kp;
-                        }
-                        if ($kategoriSegmen) {
-                            $updatePayload['kategori_segmen'] = $kategoriSegmen;
+                            $newTaskPayload['comments'] = $comments;
+                            $newTaskPayload['comment_updated_by'] = Auth::id();
+                            $newTaskPayload['comment_updated_at'] = now();
+                            $importedCommentsCount++;
                         }
 
-                        $existing->fill($updatePayload);
-                        $dirty = $existing->getDirty();
-
-                        $changedFields = [];
-                        foreach ($dirty as $field => $newValue) {
-                            if (in_array($field, ['id', 'created_at', 'updated_at'], true)) {
-                                continue;
-                            }
-
-                            $oldValue = $existing->getOriginal($field);
-                            if (! $this->areValuesDifferent($field, $oldValue, $newValue)) {
-                                $existing->setAttribute($field, $oldValue);
-
-                                continue;
-                            }
-
-                            $changedFields[] = [
-                                'task_id' => $existing->id,
-                                'customer_name' => $existing->customer_name ?: $customerName,
-                                'sid' => $existing->document_number ?: $docNumber,
-                                'change_type' => 'updated',
-                                'field' => $field,
-                                'field_label' => $this->formatFieldLabel($field),
-                                'old_value' => $this->formatFieldValueForLog($field, $oldValue, $allUsers),
-                                'new_value' => $this->formatFieldValueForLog($field, $newValue, $allUsers),
-                            ];
+                        if (! empty($rawStatus)) {
+                            $newTaskPayload['submission_notes'] = "[Status Excel: {$rawStatus}]";
                         }
 
-                        if (! empty($changedFields)) {
-                            $existing->save();
-                            $updatedCount++;
-                            $distribution[$targetUserName] = ($distribution[$targetUserName] ?? 0) + 1;
-                            foreach ($changedFields as $cf) {
-                                $detailRecords[] = $cf;
-                            }
-                        } else {
-                            $unchangedCount++;
-                        }
+                        $newTask = Task::create($newTaskPayload);
 
-                        continue;
+                        $insertedCount++;
+                        $distribution[$targetUserName] = ($distribution[$targetUserName] ?? 0) + 1;
+
+                        $detailRecords[] = [
+                            'task_id' => $newTask->id,
+                            'customer_name' => $newTask->customer_name ?: $customerName,
+                            'sid' => $newTask->document_number ?: $docNumber,
+                            'change_type' => 'added',
+                            'field' => 'task',
+                            'field_label' => 'Tugas Baru',
+                            'old_value' => null,
+                            'new_value' => $this->formatInitialTaskValue($newTask),
+                        ];
+                    } catch (\Throwable $rowEx) {
+                        $errors[] = "Baris #{$rowNum} ({$docNumber}): Gagal menyimpan data — {$rowEx->getMessage()}";
                     }
                 }
-
-                // Insert new task
-                $newTaskPayload = [
-                    'user_id' => $targetUserId,
-                    'assigned_by' => Auth::id(),
-                    'category' => $category,
-                    'document_number' => $docNumber,
-                    'title' => $title,
-                    'description' => $description,
-                    'customer_name' => $customerName,
-                    'id_pelanggan' => $idPelanggan ?: null,
-                    'kp' => $kp,
-                    'kategori_segmen' => $kategoriSegmen,
-                    'service_type' => $serviceType,
-                    'priority' => $priority,
-                    'status' => $status,
-                    'rp_exception' => $rpException,
-                    'harga_baru' => $hargaBaru,
-                    'start_date' => $parsedStartDate,
-                    'due_date' => $parsedDueDate,
-                    'sales_name' => $userIdentifier,
-                    'confirm_to' => $confirmTo,
-                ];
-
-                if (($category === Task::CATEGORY_BAA || $category === Task::CATEGORY_SSO_OPEN) && $status === Task::STATUS_APPROVED) {
-                    $newTaskPayload['completed_at'] = now();
-                    $newTaskPayload['confirmed_at'] = now();
-                    $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                    $newTaskPayload['reviewed_at'] = now();
-                    $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import Excel (Done/Selesai).';
-                } elseif ($category === Task::CATEGORY_EXCEPTION && $status === Task::STATUS_APPROVED) {
-                    $newTaskPayload['completed_at'] = now();
-                    $newTaskPayload['confirmed_at'] = now();
-                    $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                    $newTaskPayload['reviewed_at'] = now();
-                    $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import (CLOSE)';
-                } elseif ($category === Task::CATEGORY_KONTRAK_EXP && $status === Task::STATUS_APPROVED) {
-                    $newTaskPayload['completed_at'] = now();
-                    $newTaskPayload['confirmed_at'] = now();
-                    $newTaskPayload['confirmed_by'] = Auth::id() ?: $targetUserId;
-                    $newTaskPayload['reviewed_at'] = now();
-                    $newTaskPayload['admin_notes'] = 'Disetujui otomatis dari status import (Done)';
-                }
-
-                $allowedCommentCategories = SbuSheetMapper::allowedCommentCategories();
-
-                if (in_array($category, $allowedCommentCategories, true) && ! empty($comments)) {
-                    $newTaskPayload['comments'] = $comments;
-                    $newTaskPayload['comment_updated_by'] = Auth::id();
-                    $newTaskPayload['comment_updated_at'] = now();
-                    $importedCommentsCount++;
-                }
-
-                if (! empty($rawStatus)) {
-                    $newTaskPayload['submission_notes'] = "[Status Excel: {$rawStatus}]";
-                }
-
-                $newTask = Task::create($newTaskPayload);
-
-                $insertedCount++;
-                $distribution[$targetUserName] = ($distribution[$targetUserName] ?? 0) + 1;
-
-                $detailRecords[] = [
-                    'task_id' => $newTask->id,
-                    'customer_name' => $newTask->customer_name ?: $customerName,
-                    'sid' => $newTask->document_number ?: $docNumber,
-                    'change_type' => 'added',
-                    'field' => 'task',
-                    'field_label' => 'Tugas Baru',
-                    'old_value' => null,
-                    'new_value' => $this->formatInitialTaskValue($newTask),
-                ];
             }
 
             $failedCount = count($errors);
             $catLabel = $targetCategory ? strtoupper($targetCategory) : 'SEMUA';
-            $summary = "Import massal kategori {$catLabel}: {$insertedCount} ditambahkan, {$updatedCount} diperbarui, {$unchangedCount} tidak berubah";
-            if ($skippedCount > 0) {
-                $summary .= ", {$skippedCount} dilewati";
-            }
-            if ($failedCount > 0) {
-                $summary .= ", {$failedCount} gagal";
-            }
-            if ($importedCommentsCount > 0) {
-                $summary .= ", {$importedCommentsCount} komentar terisi";
+            if ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                $importedTotal = $insertedCount + $updatedCount;
+                $summary = "Import massal kategori {$catLabel}: {$totalRowsRead} baris dibaca, {$skippedEmptyCount} dilewati (kosong), {$importedTotal} berhasil diimpor ({$insertedCount} ditambahkan, {$updatedCount} diperbarui, {$unchangedCount} tidak berubah, {$skippedCount} duplikat), {$failedCount} gagal";
+            } else {
+                $summary = "Import massal kategori {$catLabel}: {$insertedCount} ditambahkan, {$updatedCount} diperbarui, {$unchangedCount} tidak berubah";
+                if ($skippedCount > 0) {
+                    $summary .= ", {$skippedCount} dilewati";
+                }
+                if ($failedCount > 0) {
+                    $summary .= ", {$failedCount} gagal";
+                }
+                if ($importedCommentsCount > 0) {
+                    $summary .= ", {$importedCommentsCount} komentar terisi";
+                }
             }
 
             $activityLog = ActivityLogger::log(
@@ -859,20 +1123,38 @@ class TaskImportExportController extends Controller
             return back()->withInput()->withErrors(['file' => 'Terjadi kesalahan saat memproses data import: '.$e->getMessage()]);
         }
 
-        $feedback = ($isSbuFormat ? 'File Monitoring SBU terdeteksi. ' : '')."Import data berhasil! Total {$insertedCount} tugas baru ditambahkan";
-        if ($updatedCount > 0) {
-            $feedback .= ", {$updatedCount} diperbarui";
+        if ($targetCategory === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            $importedTotal = $insertedCount + $updatedCount;
+            $failedCount = count($errors);
+            $feedback = ($isSbuFormat ? 'File Monitoring SBU terdeteksi. ' : '')
+                .'Import Verifikasi Kontrak selesai! Ringkasan: '
+                ."{$totalRowsRead} baris dibaca, "
+                ."{$skippedEmptyCount} dilewati (kosong), "
+                ."{$importedTotal} berhasil diimpor ({$insertedCount} baru, {$updatedCount} diperbarui"
+                .($unchangedCount > 0 ? ", {$unchangedCount} tidak berubah" : '')
+                .'), '
+                ."{$skippedCount} duplikat, "
+                ."dan {$failedCount} gagal.";
+
+            if ($failedCount > 0) {
+                $feedback .= ' Alasan kegagalan: '.implode(' | ', array_slice($errors, 0, 5)).($failedCount > 5 ? ' ...' : '');
+            }
+        } else {
+            $feedback = ($isSbuFormat ? 'File Monitoring SBU terdeteksi. ' : '')."Import data berhasil! Total {$insertedCount} tugas baru ditambahkan";
+            if ($updatedCount > 0) {
+                $feedback .= ", {$updatedCount} diperbarui";
+            }
+            if ($unchangedCount > 0) {
+                $feedback .= ", {$unchangedCount} tidak berubah";
+            }
+            if ($skippedCount > 0) {
+                $feedback .= ", {$skippedCount} dilewati (duplikat)";
+            }
+            if ($importedCommentsCount > 0) {
+                $feedback .= ", {$importedCommentsCount} komentar terisi";
+            }
+            $feedback .= '.';
         }
-        if ($unchangedCount > 0) {
-            $feedback .= ", {$unchangedCount} tidak berubah";
-        }
-        if ($skippedCount > 0) {
-            $feedback .= ", {$skippedCount} dilewati (duplikat)";
-        }
-        if ($importedCommentsCount > 0) {
-            $feedback .= ", {$importedCommentsCount} komentar terisi";
-        }
-        $feedback .= '.';
 
         if (! empty($distribution)) {
             $distList = [];
@@ -886,17 +1168,225 @@ class TaskImportExportController extends Controller
             $feedback .= ' (Perhatian: ada '.count($importWarnings).' tugas perlu konfirmasi penugasan).';
         }
 
+        $importSummary = [
+            'rows_read' => $totalRowsRead,
+            'skipped_empty' => $skippedEmptyCount,
+            'skipped_approved' => $skippedApprovedCount,
+            'imported' => $insertedCount + $updatedCount,
+            'inserted' => $insertedCount,
+            'updated' => $updatedCount,
+            'unchanged' => $unchangedCount,
+            'duplicate' => $skippedCount,
+            'skipped_duplicate' => $skippedCount,
+            'failed' => count($errors),
+            'errors' => $errors,
+        ];
+
         if ($targetCategory) {
             return redirect()->route('tasks.category', $targetCategory)
                 ->with('success', $feedback)
+                ->with('import_summary', $importSummary)
                 ->with('import_errors', $errors)
                 ->with('import_warnings', $importWarnings);
         }
 
         return redirect()->route('tasks.index')
             ->with('success', $feedback)
+            ->with('import_summary', $importSummary)
             ->with('import_errors', $errors)
             ->with('import_warnings', $importWarnings);
+    }
+
+    /**
+     * Detect delimiter of a CSV file from its first non-empty line.
+     */
+    private function detectCsvDelimiter(string $filePath): string
+    {
+        $handle = @fopen($filePath, 'rb');
+        if (! $handle) {
+            return ',';
+        }
+
+        $sampleLine = '';
+        for ($i = 0; $i < 10; $i++) {
+            $line = fgets($handle);
+            if ($line === false) {
+                break;
+            }
+            if (trim($line) !== '') {
+                $sampleLine = $line;
+                break;
+            }
+        }
+        fclose($handle);
+
+        if ($sampleLine === '') {
+            return ',';
+        }
+
+        $delimiters = [',' => 0, ';' => 0, "\t" => 0];
+        foreach (array_keys($delimiters) as $delim) {
+            $parsed = str_getcsv($sampleLine, $delim);
+            $delimiters[$delim] = count($parsed);
+        }
+
+        arsort($delimiters);
+        $best = (string) array_key_first($delimiters);
+
+        return $delimiters[$best] > 1 ? $best : ',';
+    }
+
+    /**
+     * Read up to $maxRows preview rows from a CSV file using streaming fgetcsv.
+     *
+     * @return list<list<string|null>>
+     */
+    private function readCsvPreviewRows(string $filePath, int $maxRows = 35): array
+    {
+        $delimiter = $this->detectCsvDelimiter($filePath);
+        $handle = @fopen($filePath, 'rb');
+        if (! $handle) {
+            throw new \RuntimeException('Tidak dapat membuka file CSV.');
+        }
+
+        $rows = [];
+        $rowIndex = 0;
+        while ($rowIndex < $maxRows && ($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if ($data === [null]) {
+                $rows[] = [];
+                $rowIndex++;
+
+                continue;
+            }
+
+            if ($rowIndex === 0 && isset($data[0])) {
+                $data[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $data[0]) ?? (string) $data[0];
+            }
+
+            $rows[] = $data;
+            $rowIndex++;
+        }
+
+        fclose($handle);
+
+        return $rows;
+    }
+
+    /**
+     * Stream CSV rows in chunks starting from 0-based $startRowIndex without loading entire file into memory.
+     *
+     * @return \Generator<int, array<int, list<string|null>>>
+     */
+    private function streamCsvRowChunks(string $filePath, int $startRowIndex, int $chunkSize = 500): \Generator
+    {
+        $delimiter = $this->detectCsvDelimiter($filePath);
+        $handle = @fopen($filePath, 'rb');
+        if (! $handle) {
+            return;
+        }
+
+        $currentRowIndex = 0;
+        $chunk = [];
+
+        while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if ($currentRowIndex === 0 && isset($data[0])) {
+                $data[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $data[0]) ?? (string) $data[0];
+            }
+
+            if ($currentRowIndex < $startRowIndex) {
+                $currentRowIndex++;
+
+                continue;
+            }
+
+            if ($data === [null]) {
+                $data = [];
+            }
+
+            $chunk[$currentRowIndex] = $data;
+            $currentRowIndex++;
+
+            if (count($chunk) >= $chunkSize) {
+                yield $chunk;
+                $chunk = [];
+            }
+        }
+
+        fclose($handle);
+
+        if (! empty($chunk)) {
+            yield $chunk;
+        }
+    }
+
+    /**
+     * Read a specific range of 1-based rows from an Excel worksheet using a chunk read filter.
+     *
+     * @return list<list<mixed>>
+     */
+    private function readExcelChunkRows(string $filePath, string $sheetName, int $startRow1Based, int $endRow1Based): array
+    {
+        $reader = IOFactory::createReaderForFile($filePath);
+        $reader->setReadDataOnly(true);
+        if (method_exists($reader, 'setReadEmptyCells')) {
+            $reader->setReadEmptyCells(false);
+        }
+        if (method_exists($reader, 'setLoadSheetsOnly')) {
+            $reader->setLoadSheetsOnly([$sheetName]);
+        }
+
+        $filter = new class($startRow1Based, $endRow1Based) implements IReadFilter
+        {
+            public function __construct(
+                private int $startRow,
+                private int $endRow,
+            ) {}
+
+            public function readCell(string $columnAddress, int $row, string $worksheetName = ''): bool
+            {
+                return $row >= $this->startRow && $row <= $this->endRow;
+            }
+        };
+
+        $reader->setReadFilter($filter);
+        $spreadsheet = $reader->load($filePath);
+        $sheet = $spreadsheet->getSheetByName($sheetName) ?? $spreadsheet->getSheet(0);
+
+        $rows = [];
+        $maxCol = $sheet->getHighestDataColumn();
+        for ($r = $startRow1Based; $r <= min($endRow1Based, max($startRow1Based, $sheet->getHighestDataRow())); $r++) {
+            $rowArray = $sheet->rangeToArray("A{$r}:{$maxCol}{$r}", null, true, false, false);
+            $rows[] = $rowArray[0] ?? [];
+        }
+
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+
+        return $rows;
+    }
+
+    /**
+     * Stream Excel rows in chunks starting from 0-based $startRowIndex without loading entire sheet at once.
+     *
+     * @return \Generator<int, array<int, list<mixed>>>
+     */
+    private function streamExcelRowChunks(string $filePath, string $sheetName, int $startRowIndex, int $totalRows1Based, int $chunkSize = 1000): \Generator
+    {
+        $startRow1Based = $startRowIndex + 1;
+        for ($chunkStart = $startRow1Based; $chunkStart <= $totalRows1Based; $chunkStart += $chunkSize) {
+            $chunkEnd = min($chunkStart + $chunkSize - 1, $totalRows1Based);
+            $rawRows = $this->readExcelChunkRows($filePath, $sheetName, $chunkStart, $chunkEnd);
+
+            $chunk = [];
+            foreach ($rawRows as $offset => $row) {
+                $zeroBasedIndex = ($chunkStart - 1) + $offset;
+                $chunk[$zeroBasedIndex] = $row;
+            }
+
+            if (! empty($chunk)) {
+                yield $chunk;
+            }
+        }
     }
 
     /**
@@ -909,6 +1399,7 @@ class TaskImportExportController extends Controller
             'baa' => Task::CATEGORY_BAA,
             'bai' => Task::CATEGORY_BAI,
             'exception', 'exc' => Task::CATEGORY_EXCEPTION,
+            'contract_verification', 'verifikasi kontrak', 'verifikasi_kontrak' => Task::CATEGORY_CONTRACT_VERIFICATION,
             'kontrak_exp', 'kontrak exp', 'kontrak' => Task::CATEGORY_KONTRAK_EXP,
             default => null,
         };
@@ -923,6 +1414,7 @@ class TaskImportExportController extends Controller
         $title = strtolower(trim($title));
 
         return match (true) {
+            str_contains($title, 'verifikasi kontrak'), str_contains($title, 'contract verification'), str_contains($title, 'verifikasi') => Task::CATEGORY_CONTRACT_VERIFICATION,
             str_contains($title, 'baa') => Task::CATEGORY_BAA,
             str_contains($title, 'bai') => Task::CATEGORY_BAI,
             str_contains($title, 'exception'), str_contains($title, 'exc') => Task::CATEGORY_EXCEPTION,
@@ -1015,7 +1507,8 @@ class TaskImportExportController extends Controller
                     ->orWhere('customer_name', 'like', "%{$search}%")
                     ->orWhere('service_type', 'like', "%{$search}%")
                     ->orWhere('sales_name', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('verification_note', 'like', "%{$search}%");
             });
         }
 
@@ -1238,6 +1731,7 @@ class TaskImportExportController extends Controller
             'sales_name' => 'Nama Sales',
             'title' => 'Judul Tugas',
             'description' => 'Deskripsi',
+            'verification_note' => 'Catatan Verifikasi',
             'customer_name' => 'Nama Pelanggan',
             'id_pelanggan' => 'ID Pelanggan',
             'document_number' => 'SID / Dokumen',

@@ -203,16 +203,8 @@
                                     </div>
                                 </div>
                             </td>
-                            @php
-                                $docParts = explode('/', $task->document_number ?? '');
-                                $docIdPa = trim($docParts[0] ?? '');
-                                $periode = isset($docParts[1]) ? trim($docParts[1]) : null;
-                            @endphp
                             <td class="py-3 px-3.5 font-mono text-xs">
-                                <div class="font-bold text-[var(--text)]">{{ $docIdPa ?: ($task->document_number ?: '-') }}</div>
-                                @if($periode)
-                                    <div class="text-[11px] text-[var(--text-muted)] mt-0.5">{{ $periode }}</div>
-                                @endif
+                                {{ $task->document_number ?: '-' }}
                             </td>
                             <td class="py-3 px-3.5 max-w-xs">
                                 <div class="font-bold text-[var(--text)] truncate" title="{{ $task->service_type ?: $task->title }}">

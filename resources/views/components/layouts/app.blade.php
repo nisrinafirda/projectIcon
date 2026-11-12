@@ -93,14 +93,14 @@
                 </nav>
             </div>
 
-            <!-- 5 Kategori ICON -->
+            <!-- 6 Kategori ICON -->
             @php
                 $sidebarBadgeCounts = $sidebarBadgeCounts ?? \App\Models\Task::sidebarBadgeCounts();
             @endphp
             <div>
                 <div class="px-3 flex items-center justify-between mb-2">
                     <p class="text-[11px] font-semibold text-blue-400/80 uppercase tracking-wider">Kategori Tugas</p>
-                    <span class="text-[10px] bg-blue-900/80 text-blue-300 px-1.5 py-0.5 rounded font-bold">5 FITUR</span>
+                    <span class="text-[10px] bg-blue-900/80 text-blue-300 px-1.5 py-0.5 rounded font-bold">6 FITUR</span>
                 </div>
                 <nav class="space-y-1">
                     <!-- SO Open -->
@@ -155,6 +155,17 @@
                         </div>
                         <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['kontrak_exp'] ?? 0 }}">
                             {{ $sidebarBadgeCounts['kontrak_exp'] ?? 0 }}
+                        </span>
+                    </a>
+
+                    <!-- VERIFIKASI KONTRAK -->
+                    <a href="{{ route('tasks.category', 'contract_verification') }}" class="flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium transition-all {{ request()->is('tasks/category/contract_verification*') ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                            <span>Verifikasi Kontrak</span>
+                        </div>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200" title="Sedang dikerjakan: {{ $sidebarBadgeCounts['contract_verification'] ?? 0 }}">
+                            {{ $sidebarBadgeCounts['contract_verification'] ?? 0 }}
                         </span>
                     </a>
                 </nav>
@@ -305,6 +316,22 @@
                             Buka Kelola Karyawan &rarr;
                         </a>
                     </div>
+                </div>
+            </div>
+            @endif
+
+            @if(session('import_errors') && count(session('import_errors')) > 0)
+            <div class="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-700 dark:text-rose-300 flex items-start gap-3 shadow-xs">
+                <svg class="w-5 h-5 text-rose-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <div class="flex-1 text-xs">
+                    <h4 class="font-bold text-rose-800 dark:text-rose-200 text-sm mb-1">
+                        Baris Gagal Diimpor ({{ count(session('import_errors')) }} Baris)
+                    </h4>
+                    <ul class="space-y-1 list-disc list-inside bg-[var(--surface-2)] p-3 rounded-xl border border-[var(--border)] font-mono text-[11px] text-[var(--text)]">
+                        @foreach(session('import_errors') as $importErr)
+                            <li>{{ $importErr }}</li>
+                        @endforeach
+                    </ul>
                 </div>
             </div>
             @endif

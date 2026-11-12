@@ -61,7 +61,8 @@ class TaskController extends Controller
                     ->orWhere('customer_name', 'like', "%{$search}%")
                     ->orWhere('service_type', 'like', "%{$search}%")
                     ->orWhere('sales_name', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('verification_note', 'like', "%{$search}%");
             });
         }
 
@@ -91,12 +92,29 @@ class TaskController extends Controller
         }
 
         // Paginate by customer groups with aggregation
-        $customerGroups = (clone $baseQuery)
-            ->selectRaw('TRIM(customer_name) as customer_key, MIN(customer_name) as display_name, COUNT(*) as task_count, MIN(due_date) as nearest_deadline, SUM(harga_baru) as total_harga_baru, SUM(rp_exception) as total_rp_exception')
-            ->groupByRaw('TRIM(customer_name)')
-            ->orderByRaw('MIN(customer_name) ASC')
-            ->paginate($perPage)
-            ->withQueryString();
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION && $user->isAdmin()) {
+            $customerGroups = (clone $baseQuery)
+                ->selectRaw("kp, COALESCE(TRIM(customer_name), '') as customer_key, MIN(customer_name) as display_name, COUNT(*) as task_count, MIN(due_date) as nearest_deadline, SUM(harga_baru) as total_harga_baru, SUM(rp_exception) as total_rp_exception")
+                ->groupByRaw("kp, COALESCE(TRIM(customer_name), '')")
+                ->orderByRaw("CASE kp WHEN 'surabaya' THEN 1 WHEN 'malang' THEN 2 WHEN 'madiun' THEN 3 WHEN 'jember' THEN 4 ELSE 5 END ASC, MIN(COALESCE(customer_name, '')) ASC")
+                ->paginate($perPage)
+                ->withQueryString();
+        } else {
+            $customerGroups = (clone $baseQuery)
+                ->selectRaw("COALESCE(TRIM(customer_name), '') as customer_key, MIN(customer_name) as display_name, COUNT(*) as task_count, MIN(due_date) as nearest_deadline, SUM(harga_baru) as total_harga_baru, SUM(rp_exception) as total_rp_exception")
+                ->groupByRaw("COALESCE(TRIM(customer_name), '')")
+                ->orderByRaw("MIN(COALESCE(customer_name, '')) ASC")
+                ->paginate($perPage)
+                ->withQueryString();
+        }
+
+        $kpFilteredCounts = collect();
+        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+            $kpFilteredCounts = (clone $baseQuery)
+                ->selectRaw("COALESCE(kp, '') as kp_key, COUNT(*) as total_count")
+                ->groupBy('kp')
+                ->pluck('total_count', 'kp_key');
+        }
 
         // Load tasks for customers on the current page with eager loading (separate page for exception)
         $customerKeys = $customerGroups->pluck('customer_key')->all();
@@ -107,11 +125,11 @@ class TaskController extends Controller
 
         if (! empty($customerKeys)) {
             $customerMetaQuery = (clone $baseQuery)
-                ->whereIn(DB::raw('TRIM(customer_name)'), $customerKeys);
+                ->whereIn(DB::raw("COALESCE(TRIM(customer_name), '')"), $customerKeys);
 
             if ($category === 'kontrak_exp') {
                 $customerMeta = $customerMetaQuery
-                    ->selectRaw('TRIM(customer_name) as customer_key, kp, sales_name, document_number, description')
+                    ->selectRaw("COALESCE(TRIM(customer_name), '') as customer_key, kp, sales_name, document_number, description")
                     ->get();
 
                 $customerContractMap = $customerMeta->groupBy('customer_key')
@@ -124,7 +142,7 @@ class TaskController extends Controller
                     })->filter()->unique()->values());
             } else {
                 $customerMeta = $customerMetaQuery
-                    ->selectRaw('TRIM(customer_name) as customer_key, kp, sales_name')
+                    ->selectRaw("COALESCE(TRIM(customer_name), '') as customer_key, kp, sales_name")
                     ->distinct()
                     ->get();
             }
@@ -133,7 +151,11 @@ class TaskController extends Controller
                 ->map(fn ($items) => $items->pluck('kp')->filter()->unique()->values());
 
             $customerSalesMap = $customerMeta->groupBy('customer_key')
-                ->map(fn ($items) => $items->pluck('sales_name')->filter()->unique()->values());
+                ->map(fn ($items) => $items->pluck('sales_name')->filter(function ($s) {
+                    $trimmed = trim((string) $s);
+
+                    return $trimmed !== '' && $trimmed !== '-' && strtolower($trimmed) !== 'not';
+                })->unique()->values());
 
             $customerHasPpbMap = (clone $baseQuery)
                 ->whereIn(DB::raw('TRIM(customer_name)'), $customerKeys)
@@ -258,9 +280,13 @@ class TaskController extends Controller
             $baseMetricsQuery->where('user_id', $user->id);
         }
 
+        $processStatuses = $category === Task::CATEGORY_CONTRACT_VERIFICATION
+            ? [Task::STATUS_PENDING, Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED]
+            : [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED];
+
         $totalCount = (clone $baseMetricsQuery)->count();
         $doneCount = (clone $baseMetricsQuery)->where('status', Task::STATUS_APPROVED)->count();
-        $processCount = (clone $baseMetricsQuery)->whereIn('status', [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED])->count();
+        $processCount = (clone $baseMetricsQuery)->whereIn('status', $processStatuses)->count();
         $donePercent = $totalCount > 0 ? round(($doneCount / $totalCount) * 100, 1) : 0;
         $processPercent = $totalCount > 0 ? round(($processCount / $totalCount) * 100, 1) : 0;
 
@@ -327,6 +353,18 @@ class TaskController extends Controller
                     'malang' => ['nilai' => 'Rp 650 Juta', 'porsi' => '15 PDL / 32 PPB'],
                     'madiun' => ['nilai' => 'Rp 450 Juta', 'porsi' => '12 PDL / 18 PPB'],
                     'jember' => ['nilai' => 'Rp 300 Juta', 'porsi' => '9 PDL / 14 PPB'],
+                ],
+            ],
+            'contract_verification' => [
+                'total_nilai' => 'Rp 0',
+                'nilai_sub' => 'Verifikasi Dokumen Kontrak',
+                'net_delta' => 'Rp 0',
+                'unit' => 'Kontrak',
+                'kp' => [
+                    'surabaya' => ['nilai' => 'Rp 0', 'porsi' => '0 PLN / 0 Publik'],
+                    'malang' => ['nilai' => 'Rp 0', 'porsi' => '0 PLN / 0 Publik'],
+                    'madiun' => ['nilai' => 'Rp 0', 'porsi' => '0 PLN / 0 Publik'],
+                    'jember' => ['nilai' => 'Rp 0', 'porsi' => '0 PLN / 0 Publik'],
                 ],
             ],
             'default' => [
@@ -398,7 +436,7 @@ class TaskController extends Controller
             $kpQuery = (clone $baseMetricsQuery)->where('kp', $kpKey);
             $kpTotal = (clone $kpQuery)->count();
             $kpDone = (clone $kpQuery)->where('status', Task::STATUS_APPROVED)->count();
-            $kpProcess = (clone $kpQuery)->whereIn('status', [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED, Task::STATUS_REJECTED])->count();
+            $kpProcess = (clone $kpQuery)->whereIn('status', $processStatuses)->count();
             $kpPercent = $kpTotal > 0 ? round(($kpDone / $kpTotal) * 100) : 0;
             $kpPln = (clone $kpQuery)->where('kategori_segmen', Task::SEGMEN_PLN)->count();
             $kpPublik = (clone $kpQuery)->where('kategori_segmen', Task::SEGMEN_PUBLIK)->count();
@@ -477,6 +515,7 @@ class TaskController extends Controller
             'customerHasPpbMap',
             'customerRpTotals',
             'customerHargaBaruTotals',
+            'kpFilteredCounts',
             'totalTaskCount',
             'salesList',
             'category',
@@ -528,6 +567,7 @@ class TaskController extends Controller
             'start_date' => ['nullable', 'date'],
             'due_date' => ['required', 'date'],
             'description' => ['nullable', 'string'],
+            'verification_note' => ['nullable', 'string'],
         ], [
             'document_number.unique' => 'Nomor dokumen ini sudah terdaftar pada kategori tersebut. Mohon gunakan nomor unik.',
         ]);
@@ -603,6 +643,7 @@ class TaskController extends Controller
             'start_date' => ['nullable', 'date'],
             'due_date' => ['required', 'date'],
             'description' => ['nullable', 'string'],
+            'verification_note' => ['nullable', 'string'],
         ], [
             'document_number.unique' => 'Nomor dokumen ini sudah digunakan pada tugas lain dalam kategori yang sama.',
         ]);
@@ -945,7 +986,8 @@ class TaskController extends Controller
             $query->where(function ($q) use ($search): void {
                 $q->where('title', 'like', "%{$search}%")
                     ->orWhere('document_number', 'like', "%{$search}%")
-                    ->orWhere('customer_name', 'like', "%{$search}%");
+                    ->orWhere('customer_name', 'like', "%{$search}%")
+                    ->orWhere('verification_note', 'like', "%{$search}%");
             });
         }
 
@@ -1115,7 +1157,14 @@ class TaskController extends Controller
 
         $kpList = Task::kpList();
         $kpLabels = $allCustomerTasks->pluck('kp')->filter()->unique()->map(fn ($k) => $kpList[$k] ?? $k)->values();
-        $salesNames = $allCustomerTasks->map(fn ($t) => $t->sales_name ?: optional($t->user)->name)->filter()->unique()->values();
+        $salesNames = $allCustomerTasks->map(function ($t) {
+            $salesName = trim((string) ($t->sales_name ?? ''));
+            if ($salesName !== '' && $salesName !== '-' && strtolower($salesName) !== 'not') {
+                return $salesName;
+            }
+
+            return optional($t->user)->name;
+        })->filter()->unique()->values();
         $nearestDeadline = $allCustomerTasks->whereNotNull('due_date')->min('due_date');
 
         // 5. Query for table tasks with filters
@@ -1172,7 +1221,9 @@ class TaskController extends Controller
                     ->orWhere('id_pelanggan', 'like', "%{$search}%")
                     ->orWhere('service_type', 'like', "%{$search}%")
                     ->orWhere('title', 'like', "%{$search}%")
-                    ->orWhere('sales_name', 'like', "%{$search}%");
+                    ->orWhere('sales_name', 'like', "%{$search}%")
+                    ->orWhere('verification_note', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
             });
         }
 

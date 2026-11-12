@@ -1228,7 +1228,7 @@ class TaskImportCategoryGuardTest extends TestCase
 
     public function test_category_ordering_in_sidebar_and_categories_list(): void
     {
-        $expectedOrder = ['sso_open', 'bai', 'baa', 'exception', 'kontrak_exp'];
+        $expectedOrder = ['sso_open', 'bai', 'baa', 'exception', 'kontrak_exp', 'contract_verification'];
         $actualOrder = array_keys(Task::categories());
         $this->assertSame($expectedOrder, $actualOrder);
 
@@ -1242,17 +1242,20 @@ class TaskImportCategoryGuardTest extends TestCase
         $posBaa = strpos($html, route('tasks.category', 'baa'));
         $posExc = strpos($html, route('tasks.category', 'exception'));
         $posKontrak = strpos($html, route('tasks.category', 'kontrak_exp'));
+        $posVerifKontrak = strpos($html, route('tasks.category', 'contract_verification'));
 
         $this->assertNotFalse($posSso);
         $this->assertNotFalse($posBai);
         $this->assertNotFalse($posBaa);
         $this->assertNotFalse($posExc);
         $this->assertNotFalse($posKontrak);
+        $this->assertNotFalse($posVerifKontrak);
 
         $this->assertTrue($posSso < $posBai, 'SO Open should appear before BAI');
         $this->assertTrue($posBai < $posBaa, 'BAI should appear before BAA');
         $this->assertTrue($posBaa < $posExc, 'BAA should appear before EXCEPTION');
         $this->assertTrue($posExc < $posKontrak, 'EXCEPTION should appear before Kontrak Exp');
+        $this->assertTrue($posKontrak < $posVerifKontrak, 'Kontrak Exp should appear before Verifikasi Kontrak');
     }
 
     public function test_real_sample_so_open_pdl_csv_extracts_progress_pekerjaan_comment(): void

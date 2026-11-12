@@ -125,6 +125,7 @@ class SidebarCategoryBadgeTest extends TestCase
             'baa' => 3,
             'exception' => 1,
             'kontrak_exp' => 4,
+            'contract_verification' => 0,
         ], $counts);
 
         $response = $this->actingAs($this->admin)->get(route('tasks.index'));
@@ -177,6 +178,7 @@ class SidebarCategoryBadgeTest extends TestCase
             'baa' => 1,
             'exception' => 0,
             'kontrak_exp' => 0,
+            'contract_verification' => 0,
         ], $countsSalesA);
 
         $responseA = $this->actingAs($this->salesA)->get(route('tasks.index'));
@@ -193,6 +195,7 @@ class SidebarCategoryBadgeTest extends TestCase
             'baa' => 0,
             'exception' => 0,
             'kontrak_exp' => 0,
+            'contract_verification' => 0,
         ], $countsSalesB);
 
         $responseB = $this->actingAs($this->salesB)->get(route('tasks.index'));

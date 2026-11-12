@@ -110,6 +110,13 @@
                 </div>
             </div>
 
+            @if($task->verification_note)
+            <div class="mt-6 pt-5 border-t border-[var(--border)]">
+                <h4 class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-2">Catatan Verifikasi Kontrak</h4>
+                <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-sm font-semibold text-[var(--text)] whitespace-pre-line">{{ $task->verification_note }}</div>
+            </div>
+            @endif
+
             <!-- Description -->
             @if($task->description)
             <div class="mt-6 pt-5 border-t border-[var(--border)]">
@@ -140,7 +147,7 @@
                     </div>
                 </div>
                 @else
-                <p class="text-xs text-[var(--text-muted)] italic">Belum ditugaskan ke karyawan</p>
+                <p class="text-xs text-amber-600 dark:text-amber-400 italic font-semibold">Belum ada PIC</p>
                 @endif
             </div>
 
@@ -152,11 +159,11 @@
                         💼
                     </div>
                     <div>
-                        @if($task->sales_name)
+                        @if($task->sales_name && strtolower(trim($task->sales_name)) !== 'not' && trim($task->sales_name) !== '-')
                             <p class="text-sm font-bold text-[var(--text)]">{{ $task->sales_name }}</p>
                             <p class="text-xs text-[var(--text-muted)]">Nama Sales Asli</p>
                         @else
-                            <p class="text-xs text-[var(--text-muted)] italic">Tidak tersedia</p>
+                            <p class="text-xs text-amber-600 dark:text-amber-400 italic font-semibold">Belum ada PIC</p>
                         @endif
                     </div>
                 </div>

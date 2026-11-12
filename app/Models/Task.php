@@ -20,6 +20,8 @@ use Illuminate\Support\Str;
     'document_number',
     'title',
     'description',
+    'verification_note',
+    'notes',
     'customer_name',
     'id_pelanggan',
     'kp',
@@ -56,7 +58,7 @@ class Task extends Model
     protected static function booted(): void
     {
         static::saving(function (Task $task) {
-            if ($task->category !== self::CATEGORY_EXCEPTION && $task->document_number) {
+            if (! in_array($task->category, [self::CATEGORY_EXCEPTION, self::CATEGORY_CONTRACT_VERIFICATION], true) && $task->document_number) {
                 $huruf = strtoupper(substr(trim($task->document_number), 0, 1));
                 if (ctype_alpha($huruf)) {
                     $task->mutation_id = Mutation::where('kode', $huruf)->value('id');
@@ -85,6 +87,8 @@ class Task extends Model
     public const CATEGORY_EXCEPTION = 'exception';
 
     public const CATEGORY_KONTRAK_EXP = 'kontrak_exp';
+
+    public const CATEGORY_CONTRACT_VERIFICATION = 'contract_verification';
 
     public const STATUS_PENDING = 'pending';
 
@@ -142,6 +146,7 @@ class Task extends Model
             self::CATEGORY_BAA => 'BAA',
             self::CATEGORY_EXCEPTION => 'EXCEPTION',
             self::CATEGORY_KONTRAK_EXP => 'Kontrak Exp',
+            self::CATEGORY_CONTRACT_VERIFICATION => 'Verifikasi Kontrak',
         ];
     }
 
@@ -199,6 +204,22 @@ class Task extends Model
     }
 
     /**
+     * Alias getter for verification_note via notes attribute.
+     */
+    public function getNotesAttribute(): ?string
+    {
+        return $this->attributes['verification_note'] ?? null;
+    }
+
+    /**
+     * Alias setter for verification_note via notes attribute.
+     */
+    public function setNotesAttribute(?string $value): void
+    {
+        $this->attributes['verification_note'] = $value;
+    }
+
+    /**
      * Category label.
      */
     public function getCategoryLabelAttribute(): string
@@ -213,6 +234,20 @@ class Task extends Model
     {
         if ($this->description && preg_match('/No\.?\s*Kontrak\s*:\s*([^\r\n]+)/i', $this->description, $matches)) {
             return trim($matches[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Nomor Kontrak Mitra (extracted from description if available).
+     */
+    public function getPartnerContractNumberAttribute(): ?string
+    {
+        if ($this->description && preg_match('/No\.?\s*Kontrak\s*Mitra\s*:\s*([^\r\n]+)/i', $this->description, $matches)) {
+            $val = trim($matches[1]);
+
+            return ($val !== '' && $val !== '-') ? $val : null;
         }
 
         return null;
