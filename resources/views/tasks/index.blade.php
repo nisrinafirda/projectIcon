@@ -415,7 +415,7 @@
                         }
 
                         $groupKpKey = (string) ($group->kp ?? '');
-                        $shouldRenderKpHeader = ($category === 'contract_verification' && auth()->user()->isAdmin() && $groupKpKey !== $currentRenderedKp);
+                        $shouldRenderKpHeader = ($category === 'contract_verification' && $groupKpKey !== $currentRenderedKp);
                         if ($shouldRenderKpHeader) {
                             $currentRenderedKp = $groupKpKey;
                             $kpHeaderLabel = $kpList[$groupKpKey] ?? ($groupKpKey !== '' ? strtoupper($groupKpKey) : 'TANPA KP');

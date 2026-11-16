@@ -91,4 +91,17 @@ class WhatsAppReportController extends Controller
             'settings' => $settings,
         ]);
     }
+
+    /**
+     * Fetch the standalone Contract Verification WhatsApp report (all roles).
+     */
+    public function contractVerification(WhatsAppReportService $reportService): JsonResponse
+    {
+        $data = $reportService->generateContractVerificationStandalone();
+
+        return response()->json([
+            'success' => true,
+            'sections' => $data,
+        ]);
+    }
 }

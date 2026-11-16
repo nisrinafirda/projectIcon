@@ -4,13 +4,14 @@ namespace App\View\Composers;
 
 use App\Models\Task;
 use App\Models\User;
+use App\Support\ContractVerificationAccess;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\View\View;
 
 class SidebarComposer
 {
     /**
-     * Bind category in-progress task counts to the view.
+     * Bind category task counts to the view.
      */
     public function compose(View $view): void
     {
@@ -20,7 +21,7 @@ class SidebarComposer
     /**
      * Get aggregate task counts grouped by category.
      * - Kategori lain: jumlah tugas in_progress.
-     * - Verifikasi Kontrak: jumlah On Process (semua yang belum approved).
+     * - Verifikasi Kontrak: jumlah On Process (semua yang belum approved), sesuai KP user.
      *
      * @return array<string, int>
      */
@@ -67,8 +68,7 @@ class SidebarComposer
 
     /**
      * Hitung Verifikasi Kontrak On Process: semua tugas yang statusnya BUKAN approved.
-     * Admin menghitung semua KP. Sales menghitung KP miliknya (kalau KP user belum
-     * tersimpan, jatuh ke tugas yang ditugaskan ke user itu).
+     * Admin menghitung semua KP, sales menghitung KP miliknya.
      */
     public static function countContractVerificationOnProcess(User $user): int
     {
@@ -77,13 +77,7 @@ class SidebarComposer
             ->where('status', '!=', Task::STATUS_APPROVED);
 
         if (! $user->isAdmin()) {
-            $userKp = strtolower(trim((string) ($user->kp ?? '')));
-
-            if ($userKp !== '') {
-                $query->whereRaw('LOWER(kp) = ?', [$userKp]);
-            } else {
-                $query->where('user_id', $user->id);
-            }
+            ContractVerificationAccess::scope($query, $user);
         }
 
         return $query->count();

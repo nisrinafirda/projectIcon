@@ -89,6 +89,9 @@ Route::middleware('auth')->group(function (): void {
         Route::post('/admin/report/whatsapp/settings', [WhatsAppReportController::class, 'updateSettings'])->name('admin.report.whatsapp.settings');
     });
 
+    // Laporan Verifikasi Kontrak (semua role)
+    Route::get('/report/contract-verification', [WhatsAppReportController::class, 'contractVerification'])->name('report.contract-verification');
+
     // General Task List & Show (placed after specific routes to avoid conflict)
     Route::get('/tasks/customer/{customer}', [TaskController::class, 'customerDetail'])->name('tasks.customer');
     Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');

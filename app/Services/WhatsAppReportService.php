@@ -21,7 +21,6 @@ class WhatsAppReportService
             $this->generateSoOpenSection(),
             $this->generateBaaSection(),
             $this->generateContractExpiredSection(),
-            $this->generateContractVerificationSection(),
             $this->generateAccrualPublikSection(),
             $this->generateAccrualPlnSection(),
         ];
@@ -966,5 +965,171 @@ class WhatsAppReportService
     public function generateAccrualPlnSection(): ?string
     {
         return null;
+    }
+
+    /**
+     * Generate standalone Contract Verification report, grouped by KP.
+     *
+     * Returns an array of text chunks keyed by KP, each KP split into
+     * sub-chunks of ~3500 chars max. Structure:
+     * [
+     *   'surabaya' => ['text' => [...chunks], 'onProcess' => int, 'selesai' => int],
+     *   ...
+     * ]
+     *
+     * On Process = status != approved (pending, in_progress, submitted, rejected).
+     * Selesai    = status == approved.
+     */
+    public function generateContractVerificationStandalone(): array
+    {
+        $now = Carbon::now('Asia/Jakarta');
+        $dateFormatted = $now->locale('id')->translatedFormat('d F Y');
+        $timeFormatted = $now->format('H.i');
+        $headerLine = "📋 *LAPORAN VERIFIKASI KONTRAK*\n🗓 {$dateFormatted} | 🕙 {$timeFormatted} WIB";
+
+        $tasks = Task::where('category', Task::CATEGORY_CONTRACT_VERIFICATION)->get();
+
+        $kpOrder = [
+            Task::KP_SURABAYA => 'SURABAYA',
+            Task::KP_MALANG   => 'MALANG',
+            Task::KP_MADIUN   => 'MADIUN',
+            Task::KP_JEMBER   => 'JEMBER',
+        ];
+
+        $grouped = $tasks->groupBy(fn ($t) => strtolower(trim((string) $t->kp)));
+
+        $result = [];
+
+        foreach ($kpOrder as $kpKey => $kpLabel) {
+            $kpTasks = $grouped->get($kpKey, collect());
+            if ($kpTasks->isEmpty()) {
+                continue;
+            }
+
+            $onProcessTasks = $kpTasks->filter(fn ($t) => $t->status !== Task::STATUS_APPROVED);
+            $selesaiCount = $kpTasks->filter(fn ($t) => $t->status === Task::STATUS_APPROVED)->count();
+            $onProcessCount = $onProcessTasks->count();
+
+            if ($onProcessCount === 0) {
+                continue;
+            }
+
+            // Build the KP section text
+            $lines = [];
+            $lines[] = $headerLine;
+            $lines[] = '';
+            $lines[] = "🏢 *KP {$kpLabel}* ({$onProcessCount} data)";
+            $lines[] = "On Process {$onProcessCount} · Selesai {$selesaiCount}";
+            $lines[] = '━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+            $num = 1;
+            foreach ($onProcessTasks as $task) {
+                $customerName = trim((string) $task->customer_name);
+                if ($customerName === '' || $customerName === '-') {
+                    $customerName = '-';
+                }
+
+                $nomorKontrak = trim((string) $task->document_number);
+                if ($nomorKontrak === '') {
+                    $nomorKontrak = '-';
+                }
+
+                $salesName = trim((string) ($task->sales_name ?? ''));
+                if ($salesName === '' || $salesName === '-' || strtolower($salesName) === 'not') {
+                    $salesName = '-';
+                }
+
+                $catatan = trim((string) ($task->verification_note ?? ''));
+                if ($catatan === '') {
+                    $catatan = '-';
+                }
+
+                $lines[] = "{$num}. *{$customerName}*";
+                $lines[] = "   • Nomor Kontrak: {$nomorKontrak}";
+                $lines[] = "   • Sales: {$salesName}";
+                $lines[] = "   • Catatan: {$catatan}";
+                $num++;
+            }
+
+            $fullText = implode("\n", $lines);
+
+            // Split into chunks of ~3500 chars if needed
+            $chunks = $this->splitTextIntoChunks($fullText, $kpLabel, $headerLine, $onProcessCount, $selesaiCount);
+
+            $result[$kpKey] = [
+                'label'     => $kpLabel,
+                'text'      => $chunks,
+                'onProcess' => $onProcessCount,
+                'selesai'   => $selesaiCount,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Split a KP report text into chunks of approximately $maxChars characters.
+     *
+     * @return string[]
+     */
+    private function splitTextIntoChunks(string $fullText, string $kpLabel, string $headerLine, int $onProcess, int $selesai, int $maxChars = 3500): array
+    {
+        if (mb_strlen($fullText) <= $maxChars) {
+            return [$fullText];
+        }
+
+        // Split by individual items (each item starts with "N. *")
+        // First, separate the header part from the items
+        $headerEnd = mb_strpos($fullText, '━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        if ($headerEnd === false) {
+            return [$fullText];
+        }
+        $headerEnd = mb_strpos($fullText, "\n", $headerEnd);
+        if ($headerEnd === false) {
+            return [$fullText];
+        }
+
+        $headerPart = mb_substr($fullText, 0, $headerEnd + 1);
+        $itemsPart = mb_substr($fullText, $headerEnd + 1);
+
+        // Split items by the pattern "N. *" at start of line
+        $items = preg_split('/(?=^\d+\.\s\*)/m', $itemsPart, -1, PREG_SPLIT_NO_EMPTY);
+
+        $chunks = [];
+        $currentItems = [];
+        $currentLen = mb_strlen($headerPart);
+
+        foreach ($items as $item) {
+            $itemLen = mb_strlen($item);
+            if ($currentLen + $itemLen > $maxChars && ! empty($currentItems)) {
+                $chunks[] = implode('', $currentItems);
+                $currentItems = [];
+                $currentLen = mb_strlen($headerPart);
+            }
+            $currentItems[] = $item;
+            $currentLen += $itemLen;
+        }
+
+        if (! empty($currentItems)) {
+            $chunks[] = implode('', $currentItems);
+        }
+
+        $totalParts = count($chunks);
+        if ($totalParts <= 1) {
+            return [$fullText];
+        }
+
+        // Rebuild each chunk with a header that includes "Bagian X/Y"
+        $result = [];
+        for ($i = 0; $i < $totalParts; $i++) {
+            $partNum = $i + 1;
+            $partHeader = $headerLine . "\n\n"
+                . "🏢 *KP {$kpLabel}* ({$onProcess} data) — Bagian {$partNum}/{$totalParts}\n"
+                . "On Process {$onProcess} · Selesai {$selesai}\n"
+                . '━━━━━━━━━━━━━━━━━━━━━━━━━━' . "\n";
+            $result[] = $partHeader . $chunks[$i];
+        }
+
+        return $result;
     }
 }

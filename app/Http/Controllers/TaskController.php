@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Support\ContractVerificationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -31,9 +32,13 @@ class TaskController extends Controller
 
         $baseQuery = Task::query();
 
-        // Scope to user's tasks if not admin
+                // Scope to user's tasks if not admin (Verifikasi Kontrak: berdasarkan KP)
         if (! $user->isAdmin()) {
-            $baseQuery->where('user_id', $user->id);
+            if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                ContractVerificationAccess::scope($baseQuery, $user);
+            } else {
+                $baseQuery->where('user_id', $user->id);
+            }
         } elseif ($request->filled('user_id')) {
             $baseQuery->where('user_id', $request->integer('user_id'));
         }
@@ -92,7 +97,7 @@ class TaskController extends Controller
         }
 
         // Paginate by customer groups with aggregation
-        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION && $user->isAdmin()) {
+                if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
             $customerGroups = (clone $baseQuery)
                 ->selectRaw("kp, COALESCE(TRIM(customer_name), '') as customer_key, MIN(customer_name) as display_name, COUNT(*) as task_count, MIN(due_date) as nearest_deadline, SUM(harga_baru) as total_harga_baru, SUM(rp_exception) as total_rp_exception")
                 ->groupByRaw("kp, COALESCE(TRIM(customer_name), '')")
@@ -276,8 +281,12 @@ class TaskController extends Controller
         if ($category) {
             $baseMetricsQuery->where('category', $category);
         }
-        if (! $user->isAdmin()) {
-            $baseMetricsQuery->where('user_id', $user->id);
+                if (! $user->isAdmin()) {
+            if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                ContractVerificationAccess::scope($baseMetricsQuery, $user);
+            } else {
+                $baseMetricsQuery->where('user_id', $user->id);
+            }
         }
 
         $processStatuses = $category === Task::CATEGORY_CONTRACT_VERIFICATION
@@ -596,8 +605,13 @@ class TaskController extends Controller
         $user = Auth::user();
 
         // Non-admin can only see tasks assigned to them
-        if (! $user->isAdmin() && $task->user_id !== $user->id) {
-            abort(403, 'Anda tidak memiliki akses ke tugas ini.');
+                if (! $user->isAdmin() && $task->user_id !== $user->id) {
+            $allowed = $task->category === Task::CATEGORY_CONTRACT_VERIFICATION
+                && ContractVerificationAccess::canView($task, $user);
+
+            if (! $allowed) {
+                abort(403, 'Anda tidak memiliki akses ke tugas ini.');
+            }
         }
 
         $task->load(['user', 'assigner', 'mutation']);
@@ -1136,8 +1150,12 @@ class TaskController extends Controller
         }
 
         // Scope to user's tasks if not admin
-        if (! $user->isAdmin()) {
-            $baseCustomerQuery->where('user_id', $user->id);
+                if (! $user->isAdmin()) {
+            if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                ContractVerificationAccess::scope($baseCustomerQuery, $user);
+            } else {
+                $baseCustomerQuery->where('user_id', $user->id);
+            }
             if ((clone $baseCustomerQuery)->count() === 0) {
                 abort(404, 'Data pelanggan tidak ditemukan.');
             }
