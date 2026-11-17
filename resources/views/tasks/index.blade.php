@@ -587,6 +587,22 @@
     @if(auth()->user()->isAdmin())
     <x-whatsapp-report-modal />
     @endif
+
+    @if($category === 'contract_verification')
+    <x-cv-report-modal />
+    <script>
+        document.addEventListener('click', function (e) {
+            var b = e.target.closest('button, a');
+            if (!b || b.closest('#cvReportModal')) { return; }
+            var t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+            if (t === 'Laporan Update') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                cvReportOpen();
+            }
+        }, true);
+    </script>
+@endif
 </x-layouts.app>
 
 

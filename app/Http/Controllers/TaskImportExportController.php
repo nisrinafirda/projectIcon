@@ -153,7 +153,7 @@ class TaskImportExportController extends Controller
     /**
      * Process bulk import of tasks with anti-duplicate logic.
      */
-        public function import(Request $request): RedirectResponse
+    public function import(Request $request): RedirectResponse
     {
         @ini_set('memory_limit', '1024M');
         @set_time_limit(0);
@@ -613,6 +613,13 @@ class TaskImportExportController extends Controller
                             }
                         }
 
+                        // Jika duplicate_action === 'skip' dan normStatusVerif === 'APPROVED', lewati sebagai dilewati APPROVED
+                        if ($duplicateAction === 'skip' && $normStatusVerif === 'APPROVED') {
+                            $skippedApprovedCount++;
+
+                            continue;
+                        }
+
                         // Baris catatan/footer satu kolom tanpa data pendukung dilewati
                         if (count($nonEmptyCells) <= 1) {
                             $skippedEmptyCount++;
@@ -666,12 +673,19 @@ class TaskImportExportController extends Controller
                         $kp = $mapped['kp'] ?: $currentSectionKp;
                         $kategoriSegmen = $mapped['kategori_segmen'];
                         $priority = $mapped['priority'];
-                        $status = Task::STATUS_PENDING;
-                        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
-                            // APPROVED -> selesai; SEND BACK / kosong -> belum selesai (pending)
-                            $status = $normStatusVerif === 'APPROVED' ? Task::STATUS_APPROVED : Task::STATUS_PENDING;
-                        }
                         $rawStatus = $mapped['raw_status'] ?? null;
+                        if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                            $rawStatusLower = strtolower(trim((string) $rawStatus));
+                            if (in_array($rawStatusLower, ['done', 'selesai', 'approved', 'close', 'closed'], true)) {
+                                $status = Task::STATUS_APPROVED;
+                            } elseif (in_array($rawStatusLower, ['on process', 'on progress', 'on proses', 'in progress', 'in_progress', 'sedang dikerjakan'], true)) {
+                                $status = Task::STATUS_IN_PROGRESS;
+                            } else {
+                                $status = Task::STATUS_PENDING;
+                            }
+                        } else {
+                            $status = $mapped['status'] ?? Task::STATUS_PENDING;
+                        }
                         $parsedStartDate = $mapped['start_date'];
                         $parsedDueDate = $mapped['due_date'];
                         $userIdentifier = $mapped['sales_identifier'];
@@ -939,16 +953,33 @@ class TaskImportExportController extends Controller
                                     $updatePayload['kategori_segmen'] = $kategoriSegmen;
                                 }
 
-                                // Verifikasi Kontrak: SEND BACK tidak menimpa progres sales (in_progress/submitted),
-                                // dan kontrak yang tadinya approved lalu SEND BACK lagi dikembalikan ke belum selesai.
-                                if ($category === Task::CATEGORY_CONTRACT_VERIFICATION && $status !== Task::STATUS_APPROVED) {
-                                    if (in_array($existing->status, [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED], true)) {
-                                        $updatePayload['status'] = $existing->status;
+                                // Verifikasi Kontrak: tangani transisi status approved vs on process / send back
+                                if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                                    if ($status === Task::STATUS_APPROVED) {
+                                        $updatePayload['status'] = Task::STATUS_APPROVED;
+                                        if (! $existing->confirmed_at) {
+                                            $updatePayload['completed_at'] = now();
+                                            $updatePayload['confirmed_at'] = now();
+                                            $updatePayload['confirmed_by'] = Auth::id() ?: $targetUserId;
+                                            $updatePayload['reviewed_at'] = now();
+                                            $updatePayload['admin_notes'] = $existing->admin_notes ?: 'Disetujui otomatis dari status import (Done/Selesai).';
+                                        }
                                     } elseif ($existing->status === Task::STATUS_APPROVED) {
+                                        // Kontrak yang tadinya approved tapi sekarang On Process / SEND BACK dikembalikan ke belum selesai
+                                        $updatePayload['status'] = $status;
                                         $updatePayload['completed_at'] = null;
                                         $updatePayload['confirmed_at'] = null;
                                         $updatePayload['confirmed_by'] = null;
                                         $updatePayload['reviewed_at'] = null;
+                                    } elseif (in_array($existing->status, [Task::STATUS_IN_PROGRESS, Task::STATUS_SUBMITTED], true) && $status === Task::STATUS_PENDING) {
+                                        // SEND BACK biasa tidak menimpa in_progress/submitted sales
+                                        $updatePayload['status'] = $existing->status;
+                                    } else {
+                                        $updatePayload['status'] = $status;
+                                    }
+
+                                    if (! empty($rawStatus)) {
+                                        $updatePayload['submission_notes'] = "[Status Excel: {$rawStatus}]";
                                     }
                                 }
 
@@ -1130,6 +1161,7 @@ class TaskImportExportController extends Controller
                 .'Import Verifikasi Kontrak selesai! Ringkasan: '
                 ."{$totalRowsRead} baris dibaca, "
                 ."{$skippedEmptyCount} dilewati (kosong), "
+                .($skippedApprovedCount > 0 ? "{$skippedApprovedCount} dilewati (APPROVED), " : '')
                 ."{$importedTotal} berhasil diimpor ({$insertedCount} baru, {$updatedCount} diperbarui"
                 .($unchangedCount > 0 ? ", {$unchangedCount} tidak berubah" : '')
                 .'), '

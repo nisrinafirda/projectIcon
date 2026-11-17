@@ -46,6 +46,14 @@ class SbuSheetMapper
             'kendala/support',
             'kendala',
         ],
+        Task::CATEGORY_CONTRACT_VERIFICATION => [
+            'konfirmasi',
+            'confirm to ppb',
+            'keterangan',
+            'kendala',
+            'catatan',
+            'catatan2',
+        ],
     ];
 
     /**
@@ -117,6 +125,8 @@ class SbuSheetMapper
         'tanggal_upload' => ['tanggal upload', 'tanggalupload'],
         'tgl_target_aktivasi' => ['tgl target aktivasi', 'target aktivasi', 'tanggal eksekusi'],
         'diterbitkan_tanggal' => ['diterbitkan tanggal', 'diterbitkan', 'tanggal pa terbit', 'pa terbit'],
+        'tgl_awal_kontrak' => ['tgl awal kontrak', 'tanggal awal kontrak', 'awal kontrak'],
+        'tgl_akhir_kontrak' => ['tgl akhir kontrak', 'tanggal akhir kontrak', 'akhir kontrak'],
         'tanggal_kontrak_berakhir' => ['tanggal kontrak berakhir', 'kontrak berakhir'],
         'tanggal_kontrak_lama' => ['tanggal kontrak lama', 'kontrak lama'],
         'sum_rf_layanan' => ['sum of rf layanan', 'rf layanan'],
@@ -668,8 +678,16 @@ class SbuSheetMapper
                 }
             }
 
+            // Khusus Verifikasi Kontrak: prioritaskan kolom Konfirmasi sebagai komentar tindak lanjut
+            if ($category === Task::CATEGORY_CONTRACT_VERIFICATION) {
+                $rawKonfirmasi = $get('konfirmasi');
+                if ($rawKonfirmasi !== '' && $rawKonfirmasi !== '-') {
+                    $comment = $rawKonfirmasi;
+                }
+            }
+
             // Fallback to Kendala portion only if no dedicated comment column was found in the sheet
-            if ($comment === null && $commentCol === null && ! empty($description) && $category !== Task::CATEGORY_SSO_OPEN) {
+            if ($comment === null && $commentCol === null && ! empty($description) && $category !== Task::CATEGORY_SSO_OPEN && $category !== Task::CATEGORY_CONTRACT_VERIFICATION) {
                 $comment = Task::extractKendalaFromDescription($description);
             }
         }
@@ -1045,7 +1063,7 @@ class SbuSheetMapper
         $dueDate = null;
 
         // Try to find start_date from various columns (priority order)
-        $startCandidates = ['tanggal_aging', 'tanggal_upload', 'diterbitkan_tanggal', 'tgl_target_aktivasi'];
+        $startCandidates = ['tgl_awal_kontrak', 'tanggal_aging', 'tanggal_upload', 'diterbitkan_tanggal', 'tgl_target_aktivasi'];
         foreach ($startCandidates as $field) {
             $val = $get($field);
             if ($val !== '' && $val !== '-' && $val !== '--/--/--' && $val !== '/ /') {
@@ -1058,7 +1076,7 @@ class SbuSheetMapper
         }
 
         // Try to find due_date from various columns (priority order)
-        $dueCandidates = ['tanggal_komitmen', 'tgl_target_aktivasi', 'tanggal_kontrak_berakhir'];
+        $dueCandidates = ['tgl_akhir_kontrak', 'tanggal_komitmen', 'tgl_target_aktivasi', 'tanggal_kontrak_berakhir'];
         foreach ($dueCandidates as $field) {
             // Don't reuse the same column already used for start_date
             if ($field === 'tgl_target_aktivasi' && $startDate !== null && $columnMap['tanggal_aging'] === null && $columnMap['tanggal_upload'] === null && $columnMap['diterbitkan_tanggal'] === null) {

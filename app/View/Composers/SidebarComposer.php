@@ -43,6 +43,32 @@ class SidebarComposer
             return $defaultCounts;
         }
 
+        if ($user->isAdmin()) {
+            $aggregated = Task::query()
+                ->where(function (Builder $query): void {
+                    $query->where(function (Builder $q): void {
+                        $q->where('category', '!=', Task::CATEGORY_CONTRACT_VERIFICATION)
+                            ->where('status', Task::STATUS_IN_PROGRESS);
+                    })->orWhere(function (Builder $q): void {
+                        $q->where('category', Task::CATEGORY_CONTRACT_VERIFICATION)
+                            ->where('status', '!=', Task::STATUS_APPROVED);
+                    });
+                })
+                ->selectRaw('category, COUNT(*) as aggregate_count')
+                ->groupBy('category')
+                ->pluck('aggregate_count', 'category')
+                ->all();
+
+            foreach ($aggregated as $category => $count) {
+                $catKey = $category === 'so_open' ? Task::CATEGORY_SSO_OPEN : $category;
+                if (array_key_exists($catKey, $defaultCounts)) {
+                    $defaultCounts[$catKey] += (int) $count;
+                }
+            }
+
+            return $defaultCounts;
+        }
+
         $aggregated = Task::query()
             ->where('status', Task::STATUS_IN_PROGRESS)
             ->where('category', '!=', Task::CATEGORY_CONTRACT_VERIFICATION)

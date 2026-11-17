@@ -21,6 +21,7 @@ class WhatsAppReportService
             $this->generateSoOpenSection(),
             $this->generateBaaSection(),
             $this->generateContractExpiredSection(),
+            $this->generateContractVerificationSection(),
             $this->generateAccrualPublikSection(),
             $this->generateAccrualPlnSection(),
         ];
